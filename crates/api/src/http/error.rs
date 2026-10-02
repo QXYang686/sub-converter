@@ -43,15 +43,15 @@ impl ApiError {
 }
 
 fn log_internal(message: &str) {
-    #[cfg(target_arch = "wasm32")]
-    worker::console_error!("internal error: {message}");
-    #[cfg(not(target_arch = "wasm32"))]
-    eprintln!("internal error: {message}");
+    tracing::error!(error_detail = message, "internal error");
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message) = self.parts();
+        if status.is_client_error() {
+            tracing::debug!(error_code = code, error_detail = %message, "request rejected");
+        }
         (
             status,
             Json(ErrorResponse {
@@ -76,7 +76,7 @@ impl From<AppError> for ApiError {
                 ApiError::Unauthorized(err.to_string())
             }
             AppError::Passkey(message) => {
-                log_internal(&message);
+                tracing::warn!(error_detail = %message, "passkey ceremony failed");
                 ApiError::Validation("passkey ceremony failed".to_string())
             }
             AppError::NotFound => ApiError::NotFound,
