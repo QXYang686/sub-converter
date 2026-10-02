@@ -1585,3 +1585,43 @@ fn list_sources_includes_snapshot_summary() {
     .unwrap();
     assert!(fetched.snapshot.is_some());
 }
+
+#[test]
+fn refresh_source_backfills_extraction_on_not_modified() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id.clone(),
+        SNAPSHOT_A.as_bytes().to_vec(),
+        Some("etag-a".to_string()),
+        None,
+        1_000,
+        SnapshotMeta::default(),
+    )))
+    .unwrap();
+
+    fixture.clock.set(2_000);
+    fixture
+        .fetcher
+        .stub(&source.url, Ok(FetchOutcome::NotModified));
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::NotModified);
+    assert_eq!(fixture.snapshots.replace_calls(), 1);
+
+    let stored = block_on(fixture.snapshots.find_by_source(&source_id))
+        .unwrap()
+        .unwrap();
+    assert!(stored.meta().body_hash.is_some());
+    assert_eq!(stored.meta().proxy_count, 2);
+    assert_eq!(stored.fetched_at(), 2_000);
+
+    let extraction = fixture.snapshots.extraction(&source_id).unwrap();
+    assert_eq!(extraction.proxy_count(), 2);
+}

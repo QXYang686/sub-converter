@@ -153,6 +153,9 @@ impl RefreshSourceHandler {
             }
             Ok(FetchOutcome::NotModified) => {
                 self.snapshots.touch(source_id, now).await?;
+                if let Some(previous) = previous.as_ref() {
+                    self.backfill(source_id, previous, now).await?;
+                }
                 Ok(RefreshStatus::NotModified)
             }
             Err(err) => {
@@ -163,5 +166,52 @@ impl RefreshSourceHandler {
                 Ok(RefreshStatus::Failed)
             }
         }
+    }
+
+    async fn backfill(
+        &self,
+        source_id: &SourceId,
+        previous: &SourceSnapshot,
+        now: i64,
+    ) -> Result<(), AppError> {
+        if previous.meta().body_hash.is_some() || previous.body().is_empty() {
+            return Ok(());
+        }
+        let Ok(text) = std::str::from_utf8(previous.body()) else {
+            return Ok(());
+        };
+        let Ok(document) = parse_document(text) else {
+            return Ok(());
+        };
+        if parse_value(&document).is_empty() {
+            return Ok(());
+        }
+
+        let extraction = ExtractedConfig::from_value(&document);
+        let mut meta = previous.meta().clone();
+        meta.body_hash = Some(body_hash(previous.body()));
+        meta.proxy_count = extraction.proxy_count() as u32;
+        meta.group_count = extraction.group_count() as u32;
+        meta.rule_count = extraction.rule_count() as u32;
+        meta.protocol_counts = extraction
+            .protocol_counts()
+            .into_iter()
+            .map(|(protocol, count)| (protocol, count as u32))
+            .collect();
+        meta.last_error = None;
+
+        let snapshot = SourceSnapshot::restore(
+            source_id.clone(),
+            previous.body().to_vec(),
+            previous.etag().map(str::to_string),
+            previous.last_modified().map(str::to_string),
+            now,
+            meta,
+        );
+        self.snapshots.save(&snapshot).await?;
+        self.snapshots
+            .replace_extraction(source_id, &extraction)
+            .await?;
+        Ok(())
     }
 }
