@@ -4,8 +4,10 @@ use auth::application::{
     Clock, PasswordHasher, RefreshTokenRepository, TokenService, WebAuthnVerifier,
 };
 use auth::domain::{ChallengeRepository, CredentialRepository};
-use subscription::application::{Clock as SubscriptionClock, SecretGenerator};
-use subscription::{PublicationRepository, SourceRepository};
+use subscription::application::{
+    BackgroundTasks, Clock as SubscriptionClock, Fetcher, SecretGenerator,
+};
+use subscription::{PublicationRepository, SnapshotRepository, SourceRepository};
 use user::UserRepository;
 
 #[derive(Clone)]
@@ -21,6 +23,9 @@ pub struct AppState {
     pub clock: Arc<dyn Clock>,
     pub sources: Arc<dyn SourceRepository>,
     pub publications: Arc<dyn PublicationRepository>,
+    pub snapshots: Arc<dyn SnapshotRepository>,
+    pub fetcher: Arc<dyn Fetcher>,
+    pub background: Arc<dyn BackgroundTasks>,
     pub subscription_clock: Arc<dyn SubscriptionClock>,
     pub secret_generator: Arc<dyn SecretGenerator>,
 }

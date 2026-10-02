@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 
@@ -28,10 +31,12 @@ use subscription::application::{
     CreatePublicationCommand, CreatePublicationHandler, CreateSourceCommand, CreateSourceHandler,
     DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand, DeleteSourceHandler,
     GetPublicationCommand, GetPublicationHandler, GetSourceCommand, GetSourceHandler,
-    ListPublicationsHandler, ListSourcesHandler, SetPublicationSourcesCommand,
-    SetPublicationSourcesHandler, UpdatePublicationCommand, UpdatePublicationHandler,
-    UpdateSourceCommand, UpdateSourceHandler,
+    ListPublicationsHandler, ListSourcesHandler, RefreshSourceHandler, ServePublicationCommand,
+    ServePublicationHandler, SetPublicationSourcesCommand, SetPublicationSourcesHandler,
+    SubscriptionFormat, UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand,
+    UpdateSourceHandler,
 };
+use subscription::{SourceId, SourceUrl};
 use user::UserId;
 
 use super::dto::{
@@ -556,4 +561,89 @@ pub async fn set_publication_sources(
         })
         .await?;
     Ok(Json(publication_response(publication)))
+}
+
+pub async fn public_subscription(
+    State(state): State<AppState>,
+    Path(secret): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Response, ApiError> {
+    let target = query.get("target").map(String::as_str).unwrap_or("clash");
+    let format = SubscriptionFormat::parse(target)
+        .ok_or_else(|| ApiError::BadRequest("unsupported target".to_string()))?;
+
+    let handler = ServePublicationHandler::new(
+        state.publications.clone(),
+        state.sources.clone(),
+        state.snapshots.clone(),
+        Arc::new(RefreshSourceHandler::new(
+            state.fetcher.clone(),
+            state.snapshots.clone(),
+            state.subscription_clock.clone(),
+        )),
+        state.background.clone(),
+        state.subscription_clock.clone(),
+    );
+    let subscription = handler
+        .handle(ServePublicationCommand { secret, format })
+        .await?;
+
+    let mut response = (StatusCode::OK, subscription.content).into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/yaml; charset=utf-8"),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(&subscription.name))
+            .map_err(|_| ApiError::Internal("invalid content disposition".to_string()))?,
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        HeaderName::from_static("profile-update-interval"),
+        HeaderValue::from_static("24"),
+    );
+    Ok(response)
+}
+
+fn content_disposition(name: &str) -> String {
+    let fallback: String = name
+        .chars()
+        .map(|character| match character {
+            c if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' => c,
+            _ => '_',
+        })
+        .collect();
+    let encoded: String = name
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect();
+    format!("attachment; filename=\"{fallback}.yaml\"; filename*=UTF-8''{encoded}.yaml")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_disposition;
+
+    #[test]
+    fn content_disposition_encodes_unicode_names() {
+        let value = content_disposition("我的订阅");
+        assert!(value.contains("filename=\"____.yaml\""), "{value}");
+        assert!(
+            value.contains("filename*=UTF-8''%E6%88%91%E7%9A%84%E8%AE%A2%E9%98%85.yaml"),
+            "{value}"
+        );
+    }
+
+    #[test]
+    fn content_disposition_keeps_ascii_names_readable() {
+        let value = content_disposition("my-sub");
+        assert!(value.contains("filename=\"my-sub.yaml\""), "{value}");
+    }
 }

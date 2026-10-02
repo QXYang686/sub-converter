@@ -10,10 +10,14 @@ use auth::infrastructure::security::{
     JwtTokenService, OsRandomSource, Pbkdf2PasswordHasher, SystemClock,
 };
 use auth::webauthn::RustWebAuthnVerifier;
-use subscription::infrastructure::persistence::{D1PublicationRepository, D1SourceRepository};
+use subscription::infrastructure::fetch::HttpFetcher;
+use subscription::infrastructure::persistence::{
+    D1PublicationRepository, D1SnapshotRepository, D1SourceRepository,
+};
 use subscription::infrastructure::security::{
     OsSecretGenerator, SystemClock as SubscriptionSystemClock,
 };
+use subscription::infrastructure::tasks::WorkerBackgroundTasks;
 use user::infrastructure::persistence::D1UserRepository;
 
 use crate::http::{router, AppState};
@@ -34,7 +38,7 @@ fn config_value(env: &Env, name: &str) -> Option<String> {
 async fn fetch(
     req: HttpRequest,
     env: Env,
-    _ctx: Context,
+    ctx: Context,
 ) -> Result<axum::http::Response<axum::body::Body>> {
     telemetry::init(config_value(&env, "LOG_LEVEL"));
     let jwt_secret = env.secret("JWT_SECRET")?.to_string();
@@ -58,6 +62,9 @@ async fn fetch(
         clock: Arc::new(SystemClock),
         sources: Arc::new(D1SourceRepository::new(session.clone())),
         publications: Arc::new(D1PublicationRepository::new(session.clone())),
+        snapshots: Arc::new(D1SnapshotRepository::new(session.clone())),
+        fetcher: Arc::new(HttpFetcher),
+        background: Arc::new(WorkerBackgroundTasks::new(ctx)),
         subscription_clock: Arc::new(SubscriptionSystemClock),
         secret_generator: Arc::new(OsSecretGenerator),
     };

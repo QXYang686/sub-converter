@@ -9,6 +9,7 @@ use subscription::application::AppError as SubscriptionError;
 #[derive(Debug)]
 pub enum ApiError {
     Validation(String),
+    BadRequest(String),
     Conflict(&'static str, String),
     Unauthorized(String),
     Forbidden(String),
@@ -24,6 +25,9 @@ impl ApiError {
                 "VALIDATION_ERROR",
                 message.clone(),
             ),
+            ApiError::BadRequest(message) => {
+                (StatusCode::BAD_REQUEST, "BAD_REQUEST", message.clone())
+            }
             ApiError::Conflict(code, message) => (StatusCode::CONFLICT, *code, message.clone()),
             ApiError::Unauthorized(message) => {
                 (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", message.clone())

@@ -8,7 +8,7 @@ command = "cd crates/api && cargo install -q \"worker-build@^0.8\" && worker-bui
 [assets]
 directory = "./crates/web/dist"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*"]
+run_worker_first = ["/api/*", "/s/*"]
 
 [vars]
 WEBAUTHN_RP_ID = "localhost"
