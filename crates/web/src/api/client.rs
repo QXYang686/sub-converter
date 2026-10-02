@@ -58,8 +58,10 @@ pub fn user_message(error: &ApiError) -> String {
     match error.code.as_str() {
         "VALIDATION_ERROR" => "输入不符合要求，请检查后重试".to_string(),
         "USERNAME_TAKEN" => "该用户名已被占用".to_string(),
+        "SOURCE_URL_TAKEN" => "该订阅链接已存在".to_string(),
         "UNAUTHORIZED" => "用户名或密码错误".to_string(),
         "FORBIDDEN" => "请求被拒绝，请刷新页面后重试".to_string(),
+        "NOT_FOUND" => "请求的资源不存在".to_string(),
         "NETWORK_ERROR" => "网络异常，请稍后重试".to_string(),
         "PASSKEY_ERROR" => "Passkey 操作未完成（可能被取消）".to_string(),
         _ => error.message.clone(),
@@ -111,6 +113,44 @@ pub(crate) async fn post_json<B: Serialize>(
     bearer: Option<&str>,
 ) -> Result<String, ApiError> {
     let mut request = Request::post(path).header(XHR_HEADER, XHR_HEADER_VALUE);
+    if let Some(token) = bearer {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let request = request
+        .json(body)
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    read_response(response).await
+}
+
+pub(crate) async fn patch_json<B: Serialize>(
+    path: &str,
+    body: &B,
+    bearer: Option<&str>,
+) -> Result<String, ApiError> {
+    let mut request = Request::patch(path).header(XHR_HEADER, XHR_HEADER_VALUE);
+    if let Some(token) = bearer {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let request = request
+        .json(body)
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    read_response(response).await
+}
+
+pub(crate) async fn put_json<B: Serialize>(
+    path: &str,
+    body: &B,
+    bearer: Option<&str>,
+) -> Result<String, ApiError> {
+    let mut request = Request::put(path).header(XHR_HEADER, XHR_HEADER_VALUE);
     if let Some(token) = bearer {
         request = request.header("Authorization", &format!("Bearer {token}"));
     }

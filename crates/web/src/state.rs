@@ -8,6 +8,10 @@ use leptos::task::spawn_local;
 use send_wrapper::SendWrapper;
 
 use contract::passkey::PasskeyResponse;
+use contract::subscription::{
+    CreatePublicationRequest, CreateSourceRequest, PublicationResponse,
+    SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
+};
 use contract::user::UserResponse;
 
 use crate::api::{self, ApiError};
@@ -144,6 +148,83 @@ impl AuthStore {
     pub async fn delete_passkey(&self, id: &str) -> Result<(), ApiError> {
         let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
         api::delete_passkey(&token, id).await
+    }
+
+    pub async fn list_sources(&self) -> Result<Vec<SourceResponse>, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::list_sources(&token).await
+    }
+
+    pub async fn create_source(&self, name: &str, url: &str) -> Result<SourceResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::create_source(
+            &token,
+            &CreateSourceRequest {
+                name: name.to_string(),
+                url: url.to_string(),
+                enabled: None,
+            },
+        )
+        .await
+    }
+
+    pub async fn update_source(
+        &self,
+        id: &str,
+        request: &UpdateSourceRequest,
+    ) -> Result<SourceResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::update_source(&token, id, request).await
+    }
+
+    pub async fn delete_source(&self, id: &str) -> Result<(), ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::delete_source(&token, id).await
+    }
+
+    pub async fn list_publications(&self) -> Result<Vec<PublicationResponse>, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::list_publications(&token).await
+    }
+
+    pub async fn create_publication(
+        &self,
+        name: &str,
+        source_ids: Vec<String>,
+    ) -> Result<PublicationResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::create_publication(
+            &token,
+            &CreatePublicationRequest {
+                name: name.to_string(),
+                source_ids,
+                expires_at: None,
+            },
+        )
+        .await
+    }
+
+    pub async fn update_publication(
+        &self,
+        id: &str,
+        request: &UpdatePublicationRequest,
+    ) -> Result<PublicationResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::update_publication(&token, id, request).await
+    }
+
+    pub async fn set_publication_sources(
+        &self,
+        id: &str,
+        source_ids: Vec<String>,
+    ) -> Result<PublicationResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::set_publication_sources(&token, id, &SetPublicationSourcesRequest { source_ids }).await
+    }
+
+    pub async fn delete_publication(&self, id: &str) -> Result<(), ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::delete_publication(&token, id).await
     }
 
     fn set_session(&self, access_token: String, user: UserResponse) {

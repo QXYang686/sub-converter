@@ -10,9 +10,13 @@ use contract::passkey::{
     PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions,
     RegisterPasskeyFinishRequest,
 };
+use contract::subscription::{
+    CreatePublicationRequest, CreateSourceRequest, PublicationResponse,
+    SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
+};
 use contract::user::UserResponse;
 
-use self::client::{delete, get, post, post_json};
+use self::client::{delete, get, patch_json, post, post_json, put_json};
 
 pub async fn register(username: &str, password: &str) -> Result<UserResponse, ApiError> {
     let body = RegisterRequest {
@@ -92,6 +96,97 @@ pub async fn delete_passkey(access_token: &str, id: &str) -> Result<(), ApiError
     delete(&format!("/api/auth/passkeys/{id}"), Some(access_token))
         .await
         .map(|_| ())
+}
+
+pub async fn list_sources(access_token: &str) -> Result<Vec<SourceResponse>, ApiError> {
+    let text = get("/api/subscriptions/sources", Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn create_source(
+    access_token: &str,
+    request: &CreateSourceRequest,
+) -> Result<SourceResponse, ApiError> {
+    let text = post_json("/api/subscriptions/sources", request, Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn update_source(
+    access_token: &str,
+    id: &str,
+    request: &UpdateSourceRequest,
+) -> Result<SourceResponse, ApiError> {
+    let text = patch_json(
+        &format!("/api/subscriptions/sources/{id}"),
+        request,
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
+}
+
+pub async fn delete_source(access_token: &str, id: &str) -> Result<(), ApiError> {
+    delete(
+        &format!("/api/subscriptions/sources/{id}"),
+        Some(access_token),
+    )
+    .await
+    .map(|_| ())
+}
+
+pub async fn list_publications(access_token: &str) -> Result<Vec<PublicationResponse>, ApiError> {
+    let text = get("/api/subscriptions/publications", Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn create_publication(
+    access_token: &str,
+    request: &CreatePublicationRequest,
+) -> Result<PublicationResponse, ApiError> {
+    let text = post_json(
+        "/api/subscriptions/publications",
+        request,
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
+}
+
+pub async fn update_publication(
+    access_token: &str,
+    id: &str,
+    request: &UpdatePublicationRequest,
+) -> Result<PublicationResponse, ApiError> {
+    let text = patch_json(
+        &format!("/api/subscriptions/publications/{id}"),
+        request,
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
+}
+
+pub async fn set_publication_sources(
+    access_token: &str,
+    id: &str,
+    request: &SetPublicationSourcesRequest,
+) -> Result<PublicationResponse, ApiError> {
+    let text = put_json(
+        &format!("/api/subscriptions/publications/{id}/sources"),
+        request,
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
+}
+
+pub async fn delete_publication(access_token: &str, id: &str) -> Result<(), ApiError> {
+    delete(
+        &format!("/api/subscriptions/publications/{id}"),
+        Some(access_token),
+    )
+    .await
+    .map(|_| ())
 }
 
 fn parse<T: DeserializeOwned>(text: &str) -> Result<T, ApiError> {
