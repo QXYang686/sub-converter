@@ -13,7 +13,7 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "sub-converter-db-dev"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "4b68349b-cb37-461d-9fa3-90bf4e87f2c0"
 
 [env.production]
 name = "sub-converter"
@@ -21,7 +21,7 @@ name = "sub-converter"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "sub-converter-db-prod"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "8a4ff7ef-fcff-4594-830c-da5604ec8c73"
 
 [[env.production.routes]]
 pattern = "sub.yqxpro.com"
