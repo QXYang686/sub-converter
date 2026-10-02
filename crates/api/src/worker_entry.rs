@@ -10,6 +10,10 @@ use auth::infrastructure::security::{
     JwtTokenService, OsRandomSource, Pbkdf2PasswordHasher, SystemClock,
 };
 use auth::webauthn::RustWebAuthnVerifier;
+use subscription::infrastructure::persistence::{D1PublicationRepository, D1SourceRepository};
+use subscription::infrastructure::security::{
+    OsSecretGenerator, SystemClock as SubscriptionSystemClock,
+};
 use user::infrastructure::persistence::D1UserRepository;
 
 use crate::http::{router, AppState};
@@ -48,6 +52,10 @@ async fn fetch(
         )),
         random: Arc::new(OsRandomSource),
         clock: Arc::new(SystemClock),
+        sources: Arc::new(D1SourceRepository::new(env.d1("DB")?)),
+        publications: Arc::new(D1PublicationRepository::new(env.d1("DB")?)),
+        subscription_clock: Arc::new(SubscriptionSystemClock),
+        secret_generator: Arc::new(OsSecretGenerator),
     };
 
     Ok(router(state).call(req).await?)

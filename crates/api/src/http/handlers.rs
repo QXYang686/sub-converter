@@ -19,12 +19,24 @@ use contract::passkey::{
     PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions,
     RegisterPasskeyFinishRequest,
 };
+use contract::subscription::{
+    CreatePublicationRequest, CreateSourceRequest, PublicationResponse,
+    SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
+};
 use contract::user::UserResponse;
+use subscription::application::{
+    CreatePublicationCommand, CreatePublicationHandler, CreateSourceCommand, CreateSourceHandler,
+    DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand, DeleteSourceHandler,
+    GetPublicationCommand, GetPublicationHandler, GetSourceCommand, GetSourceHandler,
+    ListPublicationsHandler, ListSourcesHandler, SetPublicationSourcesCommand,
+    SetPublicationSourcesHandler, UpdatePublicationCommand, UpdatePublicationHandler,
+    UpdateSourceCommand, UpdateSourceHandler,
+};
 use user::UserId;
 
 use super::dto::{
-    auth_response, creation_options, passkey_response, refresh_auth_response, request_options,
-    user_response,
+    auth_response, creation_options, passkey_response, publication_response, refresh_auth_response,
+    request_options, source_response, user_response,
 };
 use super::error::ApiError;
 use super::session;
@@ -321,4 +333,221 @@ pub async fn delete_passkey(
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_sources(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SourceResponse>>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = ListSourcesHandler::new(state.sources.clone());
+    let sources = handler.handle(&user_id).await?;
+    Ok(Json(sources.into_iter().map(source_response).collect()))
+}
+
+pub async fn create_source(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: JsonPayload<CreateSourceRequest>,
+) -> Result<(StatusCode, Json<SourceResponse>), ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler = CreateSourceHandler::new(state.sources.clone(), state.subscription_clock.clone());
+    let source = handler
+        .handle(CreateSourceCommand {
+            user_id,
+            name: request.name,
+            url: request.url,
+            enabled: request.enabled,
+        })
+        .await?;
+    Ok((StatusCode::CREATED, Json(source_response(source))))
+}
+
+pub async fn get_source(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<SourceResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = GetSourceHandler::new(state.sources.clone());
+    let source = handler
+        .handle(GetSourceCommand {
+            user_id,
+            source_id: id,
+        })
+        .await?;
+    Ok(Json(source_response(source)))
+}
+
+pub async fn update_source(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    payload: JsonPayload<UpdateSourceRequest>,
+) -> Result<Json<SourceResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler = UpdateSourceHandler::new(state.sources.clone(), state.subscription_clock.clone());
+    let source = handler
+        .handle(UpdateSourceCommand {
+            user_id,
+            source_id: id,
+            name: request.name,
+            url: request.url,
+            enabled: request.enabled,
+        })
+        .await?;
+    Ok(Json(source_response(source)))
+}
+
+pub async fn delete_source(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = DeleteSourceHandler::new(state.sources.clone());
+    handler
+        .handle(DeleteSourceCommand {
+            user_id,
+            source_id: id,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_publications(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<PublicationResponse>>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = ListPublicationsHandler::new(state.publications.clone());
+    let publications = handler.handle(&user_id).await?;
+    Ok(Json(
+        publications.into_iter().map(publication_response).collect(),
+    ))
+}
+
+pub async fn create_publication(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: JsonPayload<CreatePublicationRequest>,
+) -> Result<(StatusCode, Json<PublicationResponse>), ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler = CreatePublicationHandler::new(
+        state.sources.clone(),
+        state.publications.clone(),
+        state.secret_generator.clone(),
+        state.subscription_clock.clone(),
+    );
+    let publication = handler
+        .handle(CreatePublicationCommand {
+            user_id,
+            name: request.name,
+            source_ids: request.source_ids,
+            expires_at: request.expires_at,
+        })
+        .await?;
+    Ok((StatusCode::CREATED, Json(publication_response(publication))))
+}
+
+pub async fn get_publication(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<PublicationResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = GetPublicationHandler::new(state.publications.clone());
+    let publication = handler
+        .handle(GetPublicationCommand {
+            user_id,
+            publication_id: id,
+        })
+        .await?;
+    Ok(Json(publication_response(publication)))
+}
+
+pub async fn update_publication(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    payload: JsonPayload<UpdatePublicationRequest>,
+) -> Result<Json<PublicationResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler =
+        UpdatePublicationHandler::new(state.publications.clone(), state.subscription_clock.clone());
+    let publication = handler
+        .handle(UpdatePublicationCommand {
+            user_id,
+            publication_id: id,
+            name: request.name,
+            enabled: request.enabled,
+            expires_at: request.expires_at,
+        })
+        .await?;
+    Ok(Json(publication_response(publication)))
+}
+
+pub async fn delete_publication(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = DeletePublicationHandler::new(state.publications.clone());
+    handler
+        .handle(DeletePublicationCommand {
+            user_id,
+            publication_id: id,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn set_publication_sources(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    payload: JsonPayload<SetPublicationSourcesRequest>,
+) -> Result<Json<PublicationResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler = SetPublicationSourcesHandler::new(
+        state.sources.clone(),
+        state.publications.clone(),
+        state.subscription_clock.clone(),
+    );
+    let publication = handler
+        .handle(SetPublicationSourcesCommand {
+            user_id,
+            publication_id: id,
+            source_ids: request.source_ids,
+        })
+        .await?;
+    Ok(Json(publication_response(publication)))
 }

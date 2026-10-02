@@ -11,5 +11,21 @@ mod tests {
         assert_eq!(contract::USERNAME_MAX_LEN, user::USERNAME_MAX_LEN);
         assert_eq!(contract::PASSWORD_MIN_LEN, auth::domain::PASSWORD_MIN_LEN);
         assert_eq!(contract::PASSWORD_MAX_LEN, auth::domain::PASSWORD_MAX_LEN);
+        assert_eq!(
+            contract::SUBSCRIPTION_NAME_MIN_LEN,
+            subscription::SUBSCRIPTION_NAME_MIN_LEN
+        );
+        assert_eq!(
+            contract::SUBSCRIPTION_NAME_MAX_LEN,
+            subscription::SUBSCRIPTION_NAME_MAX_LEN
+        );
+        assert_eq!(
+            contract::SOURCE_URL_MAX_LEN,
+            subscription::SOURCE_URL_MAX_LEN
+        );
+        assert_eq!(
+            contract::PUBLICATION_MAX_SOURCES,
+            subscription::PUBLICATION_MAX_SOURCES
+        );
     }
 }

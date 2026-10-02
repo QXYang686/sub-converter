@@ -6,7 +6,7 @@ mod state;
 
 pub use state::AppState;
 
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 
 pub fn router(state: AppState) -> Router {
@@ -33,9 +33,30 @@ pub fn router(state: AppState) -> Router {
             post(handlers::passkey_login_finish),
         )
         .route("/api/auth/passkeys", get(handlers::list_passkeys))
+        .route("/api/auth/passkeys/{id}", delete(handlers::delete_passkey))
         .route(
-            "/api/auth/passkeys/{id}",
-            delete(handlers::delete_passkey),
+            "/api/subscriptions/sources",
+            get(handlers::list_sources).post(handlers::create_source),
+        )
+        .route(
+            "/api/subscriptions/sources/{id}",
+            get(handlers::get_source)
+                .patch(handlers::update_source)
+                .delete(handlers::delete_source),
+        )
+        .route(
+            "/api/subscriptions/publications",
+            get(handlers::list_publications).post(handlers::create_publication),
+        )
+        .route(
+            "/api/subscriptions/publications/{id}",
+            get(handlers::get_publication)
+                .patch(handlers::update_publication)
+                .delete(handlers::delete_publication),
+        )
+        .route(
+            "/api/subscriptions/publications/{id}/sources",
+            put(handlers::set_publication_sources),
         )
         .with_state(state)
 }

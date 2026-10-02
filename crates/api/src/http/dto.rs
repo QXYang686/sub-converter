@@ -5,9 +5,12 @@ use auth::application::{
 use contract::auth::AuthResponse;
 use contract::passkey::{
     AuthenticatorSelection, CredentialDescriptor, PasskeyResponse, PubKeyCredParam,
-    PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions, RelyingParty, UserEntity,
+    PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions, RelyingParty,
+    UserEntity,
 };
+use contract::subscription::{PublicationResponse, SourceResponse};
 use contract::user::UserResponse;
+use subscription::application::{PublicationView, SourceView};
 
 const OPTION_TIMEOUT_MS: u32 = 300_000;
 
@@ -15,6 +18,30 @@ pub fn user_response(view: UserView) -> UserResponse {
     UserResponse {
         id: view.id,
         username: view.username,
+    }
+}
+
+pub fn source_response(view: SourceView) -> SourceResponse {
+    SourceResponse {
+        id: view.id,
+        name: view.name,
+        url: view.url,
+        enabled: view.enabled,
+        created_at: view.created_at,
+        updated_at: view.updated_at,
+    }
+}
+
+pub fn publication_response(view: PublicationView) -> PublicationResponse {
+    PublicationResponse {
+        id: view.id,
+        name: view.name,
+        secret: view.secret,
+        enabled: view.enabled,
+        expires_at: view.expires_at,
+        source_ids: view.source_ids,
+        created_at: view.created_at,
+        updated_at: view.updated_at,
     }
 }
 
@@ -34,9 +61,7 @@ pub fn refresh_auth_response(result: RefreshResult) -> AuthResponse {
     }
 }
 
-pub fn creation_options(
-    options: PasskeyRegistrationOptions,
-) -> PublicKeyCredentialCreationOptions {
+pub fn creation_options(options: PasskeyRegistrationOptions) -> PublicKeyCredentialCreationOptions {
     PublicKeyCredentialCreationOptions {
         challenge: options.challenge,
         rp: RelyingParty {

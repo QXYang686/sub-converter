@@ -4,11 +4,12 @@ use axum::Json;
 use contract::auth::{ErrorBody, ErrorResponse};
 
 use auth::application::{AppError, PortError};
+use subscription::application::AppError as SubscriptionError;
 
 #[derive(Debug)]
 pub enum ApiError {
     Validation(String),
-    Conflict(String),
+    Conflict(&'static str, String),
     Unauthorized(String),
     Forbidden(String),
     NotFound,
@@ -23,20 +24,12 @@ impl ApiError {
                 "VALIDATION_ERROR",
                 message.clone(),
             ),
-            ApiError::Conflict(message) => {
-                (StatusCode::CONFLICT, "USERNAME_TAKEN", message.clone())
-            }
+            ApiError::Conflict(code, message) => (StatusCode::CONFLICT, *code, message.clone()),
             ApiError::Unauthorized(message) => {
                 (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", message.clone())
             }
-            ApiError::Forbidden(message) => {
-                (StatusCode::FORBIDDEN, "FORBIDDEN", message.clone())
-            }
-            ApiError::NotFound => (
-                StatusCode::NOT_FOUND,
-                "NOT_FOUND",
-                "not found".to_string(),
-            ),
+            ApiError::Forbidden(message) => (StatusCode::FORBIDDEN, "FORBIDDEN", message.clone()),
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", "not found".to_string()),
             ApiError::Internal(message) => {
                 log_internal(message);
                 (
@@ -78,7 +71,7 @@ impl From<AppError> for ApiError {
             AppError::InvalidUsername | AppError::InvalidPassword => {
                 ApiError::Validation(err.to_string())
             }
-            AppError::UsernameTaken => ApiError::Conflict(err.to_string()),
+            AppError::UsernameTaken => ApiError::Conflict("USERNAME_TAKEN", err.to_string()),
             AppError::InvalidCredentials | AppError::InvalidToken => {
                 ApiError::Unauthorized(err.to_string())
             }
@@ -94,6 +87,27 @@ impl From<AppError> for ApiError {
             AppError::Repository(error) => ApiError::Internal(error.to_string()),
             AppError::Credential(error) => ApiError::Internal(error.to_string()),
             AppError::Internal(message) => ApiError::Internal(message),
+        }
+    }
+}
+
+impl From<SubscriptionError> for ApiError {
+    fn from(err: SubscriptionError) -> Self {
+        match err {
+            SubscriptionError::InvalidName
+            | SubscriptionError::InvalidSourceUrl
+            | SubscriptionError::InvalidSourceId
+            | SubscriptionError::InvalidSecret
+            | SubscriptionError::UnknownSource
+            | SubscriptionError::DuplicateSource
+            | SubscriptionError::TooManySources => ApiError::Validation(err.to_string()),
+            SubscriptionError::SourceUrlTaken => {
+                ApiError::Conflict("SOURCE_URL_TAKEN", err.to_string())
+            }
+            SubscriptionError::NotFound => ApiError::NotFound,
+            SubscriptionError::Repository(error) => ApiError::Internal(error.to_string()),
+            SubscriptionError::Port(error) => ApiError::Internal(error.to_string()),
+            SubscriptionError::Internal(message) => ApiError::Internal(message),
         }
     }
 }
