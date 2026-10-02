@@ -17,15 +17,24 @@ pub async fn trace_request(request: Request, next: Next) -> Response {
         .get::<MatchedPath>()
         .map(|path| path.as_str().to_string())
         .unwrap_or_else(|| request.uri().path().to_string());
+    let placement = request
+        .headers()
+        .get("cf-placement")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let span = tracing::info_span!(
         "http.request",
         request_id = %request_id,
         method = %method,
         route = %route,
+        placement = field::Empty,
         status = field::Empty,
         latency_ms = field::Empty,
         user_id = field::Empty,
     );
+    if let Some(placement) = placement {
+        span.record("placement", placement.as_str());
+    }
 
     let started = now_millis();
     let mut response = next.run(request).instrument(span.clone()).await;

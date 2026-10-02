@@ -23,6 +23,9 @@ head_sampling_rate = 1
 enabled = true
 head_sampling_rate = 1
 
+[placement]
+mode = "smart"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "sub-converter-db-dev"
@@ -43,6 +46,9 @@ head_sampling_rate = 1
 [env.production.observability.traces]
 enabled = true
 head_sampling_rate = 1
+
+[env.production.placement]
+mode = "smart"
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -68,6 +74,9 @@ head_sampling_rate = 1
 [env.staging.observability.traces]
 enabled = true
 head_sampling_rate = 1
+
+[env.staging.placement]
+mode = "smart"
 
 [[env.staging.d1_databases]]
 binding = "DB"
