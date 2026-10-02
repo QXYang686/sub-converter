@@ -8,3 +8,6 @@ pub use domain::{
     PUBLICATION_SECRET_MIN_LEN, SOURCE_URL_MAX_LEN, SUBSCRIPTION_NAME_MAX_LEN,
     SUBSCRIPTION_NAME_MIN_LEN,
 };
+
+#[cfg(target_arch = "wasm32")]
+pub mod infrastructure;
