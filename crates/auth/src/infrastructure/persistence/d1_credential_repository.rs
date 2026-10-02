@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use user::UserId;
-use worker::d1::{D1Database, D1Type};
+use std::sync::Arc;
+
+use worker::d1::{D1DatabaseSession, D1Type};
 use worker::send::SendFuture;
 
 use crate::domain::{
@@ -13,11 +15,11 @@ const CREDENTIAL_COLUMNS: &str = "id, user_id, kind, password_hash, credential_i
                                    sign_count, transports, label, created_at, last_used_at";
 
 pub struct D1CredentialRepository {
-    db: D1Database,
+    db: Arc<D1DatabaseSession>,
 }
 
 impl D1CredentialRepository {
-    pub fn new(db: D1Database) -> Self {
+    pub fn new(db: Arc<D1DatabaseSession>) -> Self {
         Self { db }
     }
 }

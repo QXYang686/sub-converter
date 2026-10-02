@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use serde::Deserialize;
-use worker::d1::{D1Database, D1Type};
+use std::sync::Arc;
+
+use worker::d1::{D1DatabaseSession, D1Type};
 use worker::send::SendFuture;
 
 use crate::domain::{RepositoryError, User, UserId, UserRepository, Username};
@@ -8,11 +10,11 @@ use crate::domain::{RepositoryError, User, UserId, UserRepository, Username};
 const USER_COLUMNS: &str = "id, username, created_at, updated_at";
 
 pub struct D1UserRepository {
-    db: D1Database,
+    db: Arc<D1DatabaseSession>,
 }
 
 impl D1UserRepository {
-    pub fn new(db: D1Database) -> Self {
+    pub fn new(db: Arc<D1DatabaseSession>) -> Self {
         Self { db }
     }
 }

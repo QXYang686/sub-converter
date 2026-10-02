@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use serde::Deserialize;
 use user::UserId;
-use worker::d1::{D1Database, D1PreparedStatement, D1Type};
+use std::sync::Arc;
+
+use worker::d1::{D1DatabaseSession, D1PreparedStatement, D1Type};
 use worker::send::SendFuture;
 
 use crate::domain::{
@@ -15,11 +17,11 @@ const PUBLICATION_COLUMNS: &str =
     "id, user_id, name, secret, enabled, expires_at, created_at, updated_at";
 
 pub struct D1PublicationRepository {
-    db: D1Database,
+    db: Arc<D1DatabaseSession>,
 }
 
 impl D1PublicationRepository {
-    pub fn new(db: D1Database) -> Self {
+    pub fn new(db: Arc<D1DatabaseSession>) -> Self {
         Self { db }
     }
 

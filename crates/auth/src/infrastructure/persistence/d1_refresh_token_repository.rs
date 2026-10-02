@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use uuid::Uuid;
-use worker::d1::{D1Database, D1Type};
+use std::sync::Arc;
+
+use worker::d1::{D1DatabaseSession, D1Type};
 use worker::send::SendFuture;
 
 use crate::application::{PortError, RefreshTokenRepository, StoredRefreshToken};
@@ -10,11 +12,11 @@ use user::UserId;
 const TOKEN_COLUMNS: &str = "id, user_id, token_hash, created_at, expires_at, revoked_at";
 
 pub struct D1RefreshTokenRepository {
-    db: D1Database,
+    db: Arc<D1DatabaseSession>,
 }
 
 impl D1RefreshTokenRepository {
-    pub fn new(db: D1Database) -> Self {
+    pub fn new(db: Arc<D1DatabaseSession>) -> Self {
         Self { db }
     }
 }

@@ -42,20 +42,22 @@ async fn fetch(
     let origins =
         config_value(&env, "WEBAUTHN_ORIGINS").unwrap_or_else(|| DEFAULT_ORIGINS.to_string());
 
+    let db = env.d1("DB")?;
+    let session = Arc::new(db.with_session_constraint(D1SessionConstraint::FirstPrimary)?);
     let state = AppState {
-        users: Arc::new(D1UserRepository::new(env.d1("DB")?)),
-        credentials: Arc::new(D1CredentialRepository::new(env.d1("DB")?)),
-        challenges: Arc::new(D1ChallengeRepository::new(env.d1("DB")?)),
+        users: Arc::new(D1UserRepository::new(session.clone())),
+        credentials: Arc::new(D1CredentialRepository::new(session.clone())),
+        challenges: Arc::new(D1ChallengeRepository::new(session.clone())),
         password_hasher: Arc::new(Pbkdf2PasswordHasher::new()),
         token_service: Arc::new(JwtTokenService::new(jwt_secret)),
-        refresh_tokens: Arc::new(D1RefreshTokenRepository::new(env.d1("DB")?)),
+        refresh_tokens: Arc::new(D1RefreshTokenRepository::new(session.clone())),
         webauthn: Arc::new(RustWebAuthnVerifier::with_origins_csv(
             rp_id, RP_NAME, &origins,
         )),
         random: Arc::new(OsRandomSource),
         clock: Arc::new(SystemClock),
-        sources: Arc::new(D1SourceRepository::new(env.d1("DB")?)),
-        publications: Arc::new(D1PublicationRepository::new(env.d1("DB")?)),
+        sources: Arc::new(D1SourceRepository::new(session.clone())),
+        publications: Arc::new(D1PublicationRepository::new(session.clone())),
         subscription_clock: Arc::new(SubscriptionSystemClock),
         secret_generator: Arc::new(OsSecretGenerator),
     };
