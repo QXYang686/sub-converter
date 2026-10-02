@@ -1,0 +1,10 @@
+[package]
+name = "sub-converter-contract"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "contract"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

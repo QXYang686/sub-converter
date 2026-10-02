@@ -8,9 +8,12 @@ use user::application::{
     RefreshCommand, RefreshHandler, RegisterCommand, RegisterHandler,
 };
 
-use super::dto::{
-    AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, UserResponse,
+use contract::auth::{
+    AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest,
 };
+use contract::user::UserResponse;
+
+use super::dto::{auth_response, refresh_auth_response, user_response};
 use super::error::ApiError;
 use super::state::AppState;
 
@@ -46,7 +49,7 @@ pub async fn register(
             password: request.password,
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(UserResponse::from(user))))
+    Ok((StatusCode::CREATED, Json(user_response(user))))
 }
 
 pub async fn login(
@@ -67,7 +70,7 @@ pub async fn login(
             password: request.password,
         })
         .await?;
-    Ok(Json(AuthResponse::from(result)))
+    Ok(Json(auth_response(result)))
 }
 
 pub async fn refresh(
@@ -86,7 +89,7 @@ pub async fn refresh(
             refresh_token: request.refresh_token,
         })
         .await?;
-    Ok(Json(AuthResponse::from(result)))
+    Ok(Json(refresh_auth_response(result)))
 }
 
 pub async fn logout(
@@ -119,5 +122,5 @@ pub async fn me(
         state.clock.clone(),
     );
     let user = handler.handle(token).await?;
-    Ok(Json(UserResponse::from(user)))
+    Ok(Json(user_response(user)))
 }

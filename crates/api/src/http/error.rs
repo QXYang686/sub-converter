@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Serialize;
+use contract::auth::{ErrorBody, ErrorResponse};
 
 use user::application::{AppError, PortError};
 use user::domain::DomainError;
@@ -12,17 +12,6 @@ pub enum ApiError {
     Conflict(String),
     Unauthorized(String),
     Internal(String),
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: ErrorBody,
-}
-
-#[derive(Serialize)]
-struct ErrorBody {
-    code: &'static str,
-    message: String,
 }
 
 impl ApiError {
@@ -54,7 +43,10 @@ impl IntoResponse for ApiError {
         (
             status,
             Json(ErrorResponse {
-                error: ErrorBody { code, message },
+                error: ErrorBody {
+                    code: code.to_string(),
+                    message,
+                },
             }),
         )
             .into_response()

@@ -8,9 +8,9 @@ name = "api"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+sub-converter-contract = { path = "../contract" }
 sub-converter-user = { path = "../user" }
 axum = { version = "0.8", default-features = false, features = ["json"] }
-serde = { version = "1", features = ["derive"] }
 tower-service = "0.3.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

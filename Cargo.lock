@@ -696,11 +696,18 @@ name = "sub-converter-api"
 version = "0.1.0"
 dependencies = [
  "axum",
- "serde",
+ "sub-converter-contract",
  "sub-converter-user",
  "tower-service",
  "worker",
  "worker-macros",
+]
+
+[[package]]
+name = "sub-converter-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
