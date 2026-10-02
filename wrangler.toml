@@ -4,3 +4,16 @@ compatibility_date = "2026-10-02"
 
 [build]
 command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sub-converter-db-dev"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[env.production]
+name = "sub-converter-api"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "sub-converter-db-prod"
+database_id = "00000000-0000-0000-0000-000000000000"
