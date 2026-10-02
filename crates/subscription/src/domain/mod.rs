@@ -1,3 +1,4 @@
+mod clash;
 mod error;
 mod publication;
 mod repository;
@@ -5,6 +6,9 @@ mod snapshot;
 mod source;
 mod value_object;
 
+pub use clash::{
+    merge, parse, render, ClashError, ClashProxy, ParsedClash, ProxyProtocol, PROXY_GROUP_NAME,
+};
 pub use error::{DomainError, RepositoryError};
 pub use publication::{Publication, PublicationSource};
 pub use repository::{PublicationRepository, SnapshotRepository, SourceRepository};
