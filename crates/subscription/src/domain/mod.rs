@@ -1,12 +1,14 @@
 mod error;
 mod publication;
 mod repository;
+mod snapshot;
 mod source;
 mod value_object;
 
 pub use error::{DomainError, RepositoryError};
 pub use publication::{Publication, PublicationSource};
-pub use repository::{PublicationRepository, SourceRepository};
+pub use repository::{PublicationRepository, SnapshotRepository, SourceRepository};
+pub use snapshot::SourceSnapshot;
 pub use source::Source;
 pub use value_object::{
     PublicationId, PublicationSecret, SourceId, SourceUrl, SubscriptionName,

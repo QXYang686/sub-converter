@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
-use user::UserId;
 use std::sync::Arc;
+use user::UserId;
 
 use worker::d1::{D1DatabaseSession, D1Type};
 use worker::send::SendFuture;
@@ -160,6 +160,9 @@ impl SourceRepository for D1SourceRepository {
                 .batch(vec![
                     self.db
                         .prepare("DELETE FROM publication_sources WHERE source_id = ?1")
+                        .bind_refs(&[D1Type::Text(&id)])?,
+                    self.db
+                        .prepare("DELETE FROM source_snapshots WHERE source_id = ?1")
                         .bind_refs(&[D1Type::Text(&id)])?,
                     self.db
                         .prepare("DELETE FROM sources WHERE id = ?1 AND user_id = ?2")

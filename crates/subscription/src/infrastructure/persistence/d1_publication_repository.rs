@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use user::UserId;
 use std::sync::Arc;
+use user::UserId;
 
 use worker::d1::{D1DatabaseSession, D1PreparedStatement, D1Type};
 use worker::send::SendFuture;
@@ -124,6 +124,44 @@ impl PublicationRepository for D1PublicationRepository {
                 return Ok(None);
             };
 
+            let result = self
+                .db
+                .prepare(
+                    "SELECT publication_id, source_id, position FROM publication_sources \
+                     WHERE publication_id = ?1 ORDER BY position",
+                )
+                .bind_refs(&[D1Type::Text(&id)])?
+                .all()
+                .await?;
+            let sources = result
+                .results::<BindingRow>()?
+                .into_iter()
+                .map(row_to_binding)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Some(row_to_publication(row, sources)?))
+        })
+        .await
+    }
+
+    async fn find_by_secret(
+        &self,
+        secret: &PublicationSecret,
+    ) -> Result<Option<Publication>, RepositoryError> {
+        let secret = secret.value().to_string();
+        SendFuture::new(async move {
+            let row = self
+                .db
+                .prepare(format!(
+                    "SELECT {PUBLICATION_COLUMNS} FROM publications WHERE secret = ?1"
+                ))
+                .bind_refs(&[D1Type::Text(&secret)])?
+                .first::<PublicationRow>(None)
+                .await?;
+            let Some(row) = row else {
+                return Ok(None);
+            };
+
+            let id = row.id.clone();
             let result = self
                 .db
                 .prepare(

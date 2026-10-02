@@ -11,6 +11,8 @@ sub-converter-user = { path = "../user" }
 async-trait = "0.1"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde_yaml = "0.9"
 thiserror = "2"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "js"] }
@@ -18,6 +20,13 @@ uuid = { version = "1", features = ["v4", "js"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    "AbortController",
+    "AbortSignal",
+    "Headers",
+    "Request",
+    "RequestInit",
+] }
 worker = { version = "0.8", features = ["d1"] }
 
 [dev-dependencies]
