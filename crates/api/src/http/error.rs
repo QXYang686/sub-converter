@@ -32,13 +32,23 @@ impl ApiError {
             ApiError::Forbidden(message) => {
                 (StatusCode::FORBIDDEN, "FORBIDDEN", message.clone())
             }
-            ApiError::Internal(message) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                message.clone(),
-            ),
+            ApiError::Internal(message) => {
+                log_internal(message);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "INTERNAL_ERROR",
+                    "internal error".to_string(),
+                )
+            }
         }
     }
+}
+
+fn log_internal(message: &str) {
+    #[cfg(target_arch = "wasm32")]
+    worker::console_error!("internal error: {message}");
+    #[cfg(not(target_arch = "wasm32"))]
+    eprintln!("internal error: {message}");
 }
 
 impl IntoResponse for ApiError {
