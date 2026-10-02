@@ -12,7 +12,7 @@ use crate::application::ports::{
     AccessToken, Clock, IssuedRefreshToken, PasswordHasher, PortError, RefreshTokenRepository,
     StoredRefreshToken, TokenService,
 };
-use crate::domain::user::{
+use crate::domain::{
     DomainError, PasswordHash, RepositoryError, User, UserId, UserRepository, Username,
 };
 

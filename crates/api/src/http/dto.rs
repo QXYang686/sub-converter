@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::application::user::{LoginResult, RefreshResult, UserView};
+use user::application::{LoginResult, RefreshResult, UserView};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

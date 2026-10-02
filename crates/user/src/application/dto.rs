@@ -1,4 +1,4 @@
-use crate::domain::user::User;
+use crate::domain::User;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserView {

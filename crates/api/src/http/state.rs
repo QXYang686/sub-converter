@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::application::{Clock, PasswordHasher, RefreshTokenRepository, TokenService};
-use crate::domain::user::UserRepository;
+use user::application::{Clock, PasswordHasher, RefreshTokenRepository, TokenService};
+use user::domain::UserRepository;
 
 #[derive(Clone)]
 pub struct AppState {

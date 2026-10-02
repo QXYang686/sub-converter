@@ -1,0 +1,18 @@
+[package]
+name = "sub-converter-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "api"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sub-converter-user = { path = "../user" }
+axum = { version = "0.8", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+tower-service = "0.3.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "0.8", features = ["http", "axum", "d1"] }
+worker-macros = { version = "0.8", features = ["http"] }

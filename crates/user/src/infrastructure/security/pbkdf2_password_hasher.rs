@@ -7,7 +7,7 @@ use wasm_bindgen_futures::JsFuture;
 use worker::send::SendFuture;
 
 use crate::application::{PasswordHasher, PortError};
-use crate::domain::user::PasswordHash;
+use crate::domain::PasswordHash;
 
 use super::random::random_bytes;
 

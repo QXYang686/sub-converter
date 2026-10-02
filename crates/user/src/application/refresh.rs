@@ -1,19 +1,18 @@
 use std::sync::Arc;
 
 use crate::application::error::AppError;
-use crate::application::ports::{Clock, PasswordHasher, RefreshTokenRepository, TokenService};
-use crate::domain::user::{UserRepository, Username};
+use crate::application::ports::{Clock, RefreshTokenRepository, TokenService};
+use crate::domain::UserRepository;
 
 use super::UserView;
 
 #[derive(Debug, Clone)]
-pub struct LoginCommand {
-    pub username: String,
-    pub password: String,
+pub struct RefreshCommand {
+    pub refresh_token: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoginResult {
+pub struct RefreshResult {
     pub user: UserView,
     pub access_token: String,
     pub access_token_expires_at: i64,
@@ -21,54 +20,59 @@ pub struct LoginResult {
     pub refresh_token_expires_at: i64,
 }
 
-pub struct LoginHandler {
+pub struct RefreshHandler {
     users: Arc<dyn UserRepository>,
-    password_hasher: Arc<dyn PasswordHasher>,
     token_service: Arc<dyn TokenService>,
     refresh_tokens: Arc<dyn RefreshTokenRepository>,
     clock: Arc<dyn Clock>,
 }
 
-impl LoginHandler {
+impl RefreshHandler {
     pub fn new(
         users: Arc<dyn UserRepository>,
-        password_hasher: Arc<dyn PasswordHasher>,
         token_service: Arc<dyn TokenService>,
         refresh_tokens: Arc<dyn RefreshTokenRepository>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             users,
-            password_hasher,
             token_service,
             refresh_tokens,
             clock,
         }
     }
 
-    pub async fn handle(&self, command: LoginCommand) -> Result<LoginResult, AppError> {
-        let username =
-            Username::new(&command.username).map_err(|_| AppError::InvalidCredentials)?;
-        let user = self
-            .users
-            .find_by_username(&username)
+    pub async fn handle(&self, command: RefreshCommand) -> Result<RefreshResult, AppError> {
+        let now = self.clock.now();
+        let token_hash = self.token_service.hash_refresh_token(&command.refresh_token);
+        let stored = self
+            .refresh_tokens
+            .find_by_hash(&token_hash)
             .await?
-            .ok_or(AppError::InvalidCredentials)?;
+            .ok_or(AppError::InvalidToken)?;
 
-        let password_matches = self
-            .password_hasher
-            .verify(&command.password, user.password_hash())
-            .await?;
-        if !password_matches {
-            return Err(AppError::InvalidCredentials);
+        if stored.revoked_at.is_some() {
+            self.refresh_tokens
+                .revoke_all_for_user(&stored.user_id, now)
+                .await?;
+            return Err(AppError::InvalidToken);
+        }
+        if stored.expires_at <= now {
+            return Err(AppError::InvalidToken);
         }
 
-        let now = self.clock.now();
+        let user = self
+            .users
+            .find_by_id(&stored.user_id)
+            .await?
+            .ok_or(AppError::InvalidToken)?;
+
+        self.refresh_tokens.revoke(stored.id, now).await?;
         let access = self.token_service.issue_access_token(user.id(), now).await?;
         let refresh = self.token_service.issue_refresh_token(user.id(), now).await?;
         self.refresh_tokens.save(&refresh.record).await?;
 
-        Ok(LoginResult {
+        Ok(RefreshResult {
             user: UserView::from(&user),
             access_token: access.token,
             access_token_expires_at: access.expires_at,

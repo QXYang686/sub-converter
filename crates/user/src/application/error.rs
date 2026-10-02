@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use super::ports::PortError;
-use crate::domain::user::{DomainError, RepositoryError};
+use crate::domain::{DomainError, RepositoryError};
 
 #[derive(Debug, Error)]
 pub enum AppError {

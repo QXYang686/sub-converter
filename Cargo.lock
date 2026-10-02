@@ -695,8 +695,19 @@ dependencies = [
 name = "sub-converter-api"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "axum",
+ "serde",
+ "sub-converter-user",
+ "tower-service",
+ "worker",
+ "worker-macros",
+]
+
+[[package]]
+name = "sub-converter-user"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
  "base64",
  "futures",
  "hmac",
@@ -706,12 +717,10 @@ dependencies = [
  "sha2",
  "subtle",
  "thiserror",
- "tower-service",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "worker",
- "worker-macros",
 ]
 
 [[package]]

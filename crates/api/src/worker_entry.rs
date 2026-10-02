@@ -3,9 +3,10 @@ use std::sync::Arc;
 use tower_service::Service;
 use worker::*;
 
-use crate::infrastructure::persistence::{D1RefreshTokenRepository, D1UserRepository};
-use crate::infrastructure::security::{JwtTokenService, Pbkdf2PasswordHasher, SystemClock};
-use crate::interfaces::http::{router, AppState};
+use user::infrastructure::persistence::{D1RefreshTokenRepository, D1UserRepository};
+use user::infrastructure::security::{JwtTokenService, Pbkdf2PasswordHasher, SystemClock};
+
+use crate::http::{router, AppState};
 
 #[event(fetch)]
 async fn fetch(

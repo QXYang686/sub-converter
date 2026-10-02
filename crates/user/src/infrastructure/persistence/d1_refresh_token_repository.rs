@@ -5,7 +5,7 @@ use worker::d1::{D1Database, D1Type};
 use worker::send::SendFuture;
 
 use crate::application::{PortError, RefreshTokenRepository, StoredRefreshToken};
-use crate::domain::user::UserId;
+use crate::domain::UserId;
 
 const TOKEN_COLUMNS: &str = "id, user_id, token_hash, created_at, expires_at, revoked_at";
 

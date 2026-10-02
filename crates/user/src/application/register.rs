@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::application::error::AppError;
 use crate::application::ports::{Clock, PasswordHasher};
-use crate::domain::user::{validate_password, RepositoryError, User, UserId, UserRepository, Username};
+use crate::domain::{validate_password, RepositoryError, User, UserId, UserRepository, Username};
 
 use super::UserView;
 

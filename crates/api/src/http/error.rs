@@ -3,8 +3,8 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 
-use crate::application::{AppError, PortError};
-use crate::domain::user::DomainError;
+use user::application::{AppError, PortError};
+use user::domain::DomainError;
 
 #[derive(Debug)]
 pub enum ApiError {

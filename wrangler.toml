@@ -1,9 +1,9 @@
-name = "sub-converter-api"
-main = "build/index.js"
+name = "sub-converter"
+main = "crates/api/build/index.js"
 compatibility_date = "2026-10-02"
 
 [build]
-command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+command = "cargo install -q \"worker-build@^0.8\" && cd crates/api && worker-build --release"
 
 [[d1_databases]]
 binding = "DB"
@@ -11,7 +11,7 @@ database_name = "sub-converter-db-dev"
 database_id = "00000000-0000-0000-0000-000000000000"
 
 [env.production]
-name = "sub-converter-api"
+name = "sub-converter"
 
 [[env.production.d1_databases]]
 binding = "DB"

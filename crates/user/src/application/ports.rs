@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::domain::user::{PasswordHash, UserId};
+use crate::domain::{PasswordHash, UserId};
 
 #[derive(Debug, Error)]
 pub enum PortError {

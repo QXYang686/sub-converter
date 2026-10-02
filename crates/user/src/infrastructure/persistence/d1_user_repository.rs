@@ -3,9 +3,7 @@ use serde::Deserialize;
 use worker::d1::{D1Database, D1Type};
 use worker::send::SendFuture;
 
-use crate::domain::user::{
-    PasswordHash, RepositoryError, User, UserId, UserRepository, Username,
-};
+use crate::domain::{PasswordHash, RepositoryError, User, UserId, UserRepository, Username};
 
 const USER_COLUMNS: &str = "id, username, password_hash, created_at, updated_at";
 

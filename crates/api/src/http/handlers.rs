@@ -3,7 +3,7 @@ use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::Json;
 
-use crate::application::user::{
+use user::application::{
     GetCurrentUserHandler, LoginCommand, LoginHandler, LogoutCommand, LogoutHandler,
     RefreshCommand, RefreshHandler, RegisterCommand, RegisterHandler,
 };
