@@ -366,7 +366,7 @@ pub async fn list_sources(
     let user = current_user(&state, &headers).await?;
     let user_id = parse_user_id(&user)?;
 
-    let handler = ListSourcesHandler::new(state.sources.clone());
+    let handler = ListSourcesHandler::new(state.sources.clone(), state.snapshots.clone());
     let sources = handler.handle(&user_id).await?;
     Ok(Json(sources.into_iter().map(source_response).collect()))
 }
@@ -403,7 +403,7 @@ pub async fn get_source(
     let user = current_user(&state, &headers).await?;
     let user_id = parse_user_id(&user)?;
 
-    let handler = GetSourceHandler::new(state.sources.clone());
+    let handler = GetSourceHandler::new(state.sources.clone(), state.snapshots.clone());
     let source = handler
         .handle(GetSourceCommand {
             user_id,

@@ -8,9 +8,11 @@ use contract::passkey::{
     PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions, RelyingParty,
     UserEntity,
 };
-use contract::subscription::{PublicationResponse, SourceResponse};
+use contract::subscription::{
+    ProtocolCountResponse, PublicationResponse, SourceResponse, SourceSnapshotResponse,
+};
 use contract::user::UserResponse;
-use subscription::application::{PublicationView, SourceView};
+use subscription::application::{PublicationView, SourceSnapshotView, SourceView};
 
 const OPTION_TIMEOUT_MS: u32 = 300_000;
 
@@ -29,6 +31,32 @@ pub fn source_response(view: SourceView) -> SourceResponse {
         enabled: view.enabled,
         created_at: view.created_at,
         updated_at: view.updated_at,
+        snapshot: view.snapshot.map(snapshot_response),
+    }
+}
+
+fn snapshot_response(view: SourceSnapshotView) -> SourceSnapshotResponse {
+    SourceSnapshotResponse {
+        fetched_at: view.fetched_at,
+        proxy_count: view.proxy_count,
+        group_count: view.group_count,
+        rule_count: view.rule_count,
+        protocol_counts: view
+            .protocol_counts
+            .into_iter()
+            .map(|entry| ProtocolCountResponse {
+                protocol: entry.protocol,
+                count: entry.count,
+            })
+            .collect(),
+        upload: view.upload,
+        download: view.download,
+        total: view.total,
+        expire: view.expire,
+        update_interval: view.update_interval,
+        provider_name: view.provider_name,
+        provider_url: view.provider_url,
+        last_error: view.last_error,
     }
 }
 

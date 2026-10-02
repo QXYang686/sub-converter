@@ -25,7 +25,7 @@ pub use create_publication::{CreatePublicationCommand, CreatePublicationHandler}
 pub use create_source::{CreateSourceCommand, CreateSourceHandler};
 pub use delete_publication::{DeletePublicationCommand, DeletePublicationHandler};
 pub use delete_source::{DeleteSourceCommand, DeleteSourceHandler};
-pub use dto::{PublicationView, SourceView};
+pub use dto::{ProtocolCountView, PublicationView, SourceSnapshotView, SourceView};
 pub use error::AppError;
 pub use get_publication::{GetPublicationCommand, GetPublicationHandler};
 pub use get_source::{GetSourceCommand, GetSourceHandler};

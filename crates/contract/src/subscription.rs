@@ -29,6 +29,33 @@ pub struct SourceResponse {
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SourceSnapshotResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSnapshotResponse {
+    pub fetched_at: Option<i64>,
+    pub proxy_count: u32,
+    pub group_count: u32,
+    pub rule_count: u32,
+    pub protocol_counts: Vec<ProtocolCountResponse>,
+    pub upload: Option<i64>,
+    pub download: Option<i64>,
+    pub total: Option<i64>,
+    pub expire: Option<i64>,
+    pub update_interval: Option<i64>,
+    pub provider_name: Option<String>,
+    pub provider_url: Option<String>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolCountResponse {
+    pub protocol: String,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,5 +129,21 @@ mod tests {
             serde_json::from_str(r#"{"name":"我的订阅"}"#).unwrap();
         assert!(request.source_ids.is_empty());
         assert_eq!(request.expires_at, None);
+    }
+
+    #[test]
+    fn source_response_snapshot_is_optional() {
+        let json = r#"{
+            "id": "1",
+            "name": "A",
+            "url": "https://a.example.com/sub",
+            "enabled": true,
+            "createdAt": 1,
+            "updatedAt": 2
+        }"#;
+        let response: SourceResponse = serde_json::from_str(json).unwrap();
+        assert!(response.snapshot.is_none());
+        let serialized = serde_json::to_string(&response).unwrap();
+        assert!(!serialized.contains("snapshot"));
     }
 }
