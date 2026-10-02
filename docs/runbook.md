@@ -33,6 +33,19 @@ CI 需要仓库 Secrets：`CLOUDFLARE_API_TOKEN`（Edit Cloudflare Workers 模�
 - 保持向后兼容：先加列/建表，确认新代码稳定后再清理旧结构（`users.password_hash` 就是这样迁移到 `credentials` 的）
 - SQLite 能力有限（如 DROP COLUMN 支持但需谨慎），改动大表前先在 staging 验证
 
+## 日志与排查
+
+```bash
+npx wrangler tail --env production                          # 实时日志
+npx wrangler tail --env staging --format json               # 实时结构化日志
+```
+
+- Dashboard → Workers → 选择 Worker → Observability，可查询结构化日志：按 `request_id` 串联单次请求，字段含 method/route/status/latency_ms/user_id/error_code/error_detail
+- Traces 同页签查看（handler + D1 span，保留 7 天）
+- 调整级别：改 `wrangler.toml` 对应 env 的 `LOG_LEVEL`（EnvFilter 语法，如 `info,api=debug`）后重新部署
+- 调整采样：`[observability] head_sampling_rate`
+- 免费额度（2026-12-01 起）：logs 与 traces 共用 0.5 GB/天，Free 超限停止摄入、不产生费用
+
 ## Secret 轮换
 
 `JWT_SECRET`：

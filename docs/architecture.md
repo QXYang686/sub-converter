@@ -69,8 +69,16 @@ crates/
 | 类型 | 内容 | 位置 |
 |---|---|---|
 | 代码常量 | token/challenge TTL、PBKDF2 迭代次数 | `crates/auth/src/application/config.rs` 等 |
-| 环境变量 | `WEBAUTHN_RP_ID`、`WEBAUTHN_ORIGINS` | `wrangler.toml` 各 env（本地默认 `localhost`） |
+| 环境变量 | `WEBAUTHN_RP_ID`、`WEBAUTHN_ORIGINS`、`LOG_LEVEL` | `wrangler.toml` 各 env（本地默认 `localhost`） |
 | Secret | `JWT_SECRET` | `wrangler secret` / 本地 `.dev.vars` |
+
+## 可观测性
+
+- 日志：业务 crate 用 `tracing` facade；`crates/api/src/telemetry.rs`（wasm-only）输出 JSON 到 `console.log`，由 Workers Logs 索引；`LOG_LEVEL` 控制级别（支持 EnvFilter 语法），默认 `info`
+- 请求链路：`http.request` span 记录 request_id/method/route/status/latency_ms/user_id，响应回写 `x-request-id`；5xx 记 error（含详情），4xx 记 debug
+- traces：wrangler 的 `[observability.traces]` 开关，平台自动为 handler 与 D1 binding 生成 span
+- 脱敏约定：password/hash/token/challenge/cookie 一律不入日志；用例埋点用 `#[instrument(skip_all)]`
+- 决策与免费额度说明见 [ADR 0007](decisions/0007-observability.md)
 
 ## 测试策略
 
