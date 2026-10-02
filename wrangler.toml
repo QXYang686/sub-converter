@@ -10,6 +10,10 @@ directory = "./crates/web/dist"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
+[vars]
+WEBAUTHN_RP_ID = "localhost"
+WEBAUTHN_ORIGINS = "http://localhost:8080"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "sub-converter-db-dev"
@@ -17,6 +21,10 @@ database_id = "4b68349b-cb37-461d-9fa3-90bf4e87f2c0"
 
 [env.production]
 name = "sub-converter"
+
+[env.production.vars]
+WEBAUTHN_RP_ID = "yqxpro.com"
+WEBAUTHN_ORIGINS = "https://sub.yqxpro.com"
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -29,6 +37,10 @@ custom_domain = true
 
 [env.staging]
 name = "sub-converter-staging"
+
+[env.staging.vars]
+WEBAUTHN_RP_ID = "sub-converter-staging.yqxpro.workers.dev"
+WEBAUTHN_ORIGINS = "https://sub-converter-staging.yqxpro.workers.dev"
 
 [[env.staging.d1_databases]]
 binding = "DB"

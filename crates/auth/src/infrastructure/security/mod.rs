@@ -5,4 +5,5 @@ mod system_clock;
 
 pub use jwt_token_service::JwtTokenService;
 pub use pbkdf2_password_hasher::{Pbkdf2PasswordHasher, PBKDF2_ITERATIONS};
+pub use random::OsRandomSource;
 pub use system_clock::SystemClock;

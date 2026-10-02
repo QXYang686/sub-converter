@@ -4,12 +4,26 @@ use tower_service::Service;
 use worker::*;
 
 use auth::infrastructure::persistence::{
-    D1PasswordCredentialRepository, D1RefreshTokenRepository,
+    D1ChallengeRepository, D1CredentialRepository, D1RefreshTokenRepository,
 };
-use auth::infrastructure::security::{JwtTokenService, Pbkdf2PasswordHasher, SystemClock};
+use auth::infrastructure::security::{
+    JwtTokenService, OsRandomSource, Pbkdf2PasswordHasher, SystemClock,
+};
+use auth::webauthn::RustWebAuthnVerifier;
 use user::infrastructure::persistence::D1UserRepository;
 
 use crate::http::{router, AppState};
+
+const DEFAULT_RP_ID: &str = "localhost";
+const DEFAULT_ORIGINS: &str = "http://localhost:8080";
+const RP_NAME: &str = "Sub Converter";
+
+fn config_value(env: &Env, name: &str) -> Option<String> {
+    env.var(name)
+        .map(|value| value.to_string())
+        .ok()
+        .or_else(|| env.secret(name).map(|value| value.to_string()).ok())
+}
 
 #[event(fetch)]
 async fn fetch(
@@ -18,13 +32,21 @@ async fn fetch(
     _ctx: Context,
 ) -> Result<axum::http::Response<axum::body::Body>> {
     let jwt_secret = env.secret("JWT_SECRET")?.to_string();
+    let rp_id = config_value(&env, "WEBAUTHN_RP_ID").unwrap_or_else(|| DEFAULT_RP_ID.to_string());
+    let origins =
+        config_value(&env, "WEBAUTHN_ORIGINS").unwrap_or_else(|| DEFAULT_ORIGINS.to_string());
 
     let state = AppState {
         users: Arc::new(D1UserRepository::new(env.d1("DB")?)),
-        credentials: Arc::new(D1PasswordCredentialRepository::new(env.d1("DB")?)),
+        credentials: Arc::new(D1CredentialRepository::new(env.d1("DB")?)),
+        challenges: Arc::new(D1ChallengeRepository::new(env.d1("DB")?)),
         password_hasher: Arc::new(Pbkdf2PasswordHasher::new()),
         token_service: Arc::new(JwtTokenService::new(jwt_secret)),
         refresh_tokens: Arc::new(D1RefreshTokenRepository::new(env.d1("DB")?)),
+        webauthn: Arc::new(RustWebAuthnVerifier::with_origins_csv(
+            rp_id, RP_NAME, &origins,
+        )),
+        random: Arc::new(OsRandomSource),
         clock: Arc::new(SystemClock),
     };
 

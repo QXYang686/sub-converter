@@ -11,6 +11,7 @@ pub enum ApiError {
     Conflict(String),
     Unauthorized(String),
     Forbidden(String),
+    NotFound,
     Internal(String),
 }
 
@@ -31,6 +32,11 @@ impl ApiError {
             ApiError::Forbidden(message) => {
                 (StatusCode::FORBIDDEN, "FORBIDDEN", message.clone())
             }
+            ApiError::NotFound => (
+                StatusCode::NOT_FOUND,
+                "NOT_FOUND",
+                "not found".to_string(),
+            ),
             ApiError::Internal(message) => {
                 log_internal(message);
                 (
@@ -76,6 +82,11 @@ impl From<AppError> for ApiError {
             AppError::InvalidCredentials | AppError::InvalidToken => {
                 ApiError::Unauthorized(err.to_string())
             }
+            AppError::Passkey(message) => {
+                log_internal(&message);
+                ApiError::Validation("passkey ceremony failed".to_string())
+            }
+            AppError::NotFound => ApiError::NotFound,
             AppError::Port(PortError::InvalidToken) => {
                 ApiError::Unauthorized("invalid token".to_string())
             }

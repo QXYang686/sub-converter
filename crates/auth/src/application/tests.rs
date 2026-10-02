@@ -10,19 +10,26 @@ use user::{RepositoryError, User, UserId, UserRepository, Username};
 
 use crate::application::config::{ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS};
 use crate::application::error::AppError;
+use crate::application::encoding::encode_base64url;
 use crate::application::ports::{
-    AccessToken, Clock, IssuedRefreshToken, PasswordHasher, PortError, RefreshTokenRepository,
-    StoredRefreshToken, TokenService,
+    AccessToken, Clock, CollectedClientData, IssuedRefreshToken, PasskeyRegistration, PasswordHasher,
+    PortError, RandomSource, RefreshTokenRepository, StoredRefreshToken, TokenService,
+    WebAuthnVerifier,
 };
 use crate::domain::{
-    CredentialId, PasswordCredential, PasswordCredentialRepository, PasswordHash,
-    RepositoryError as CredentialRepositoryError,
+    Challenge, ChallengeRepository, Credential, CredentialId, CredentialRepository, Passkey,
+    PasswordHash, RepositoryError as CredentialRepositoryError,
 };
 
 use super::{
-    GetCurrentUserHandler, LoginCommand, LoginHandler, LoginResult, LogoutCommand, LogoutHandler,
-    RefreshCommand, RefreshHandler, RegisterCommand, RegisterHandler, UserView,
+    FinishPasskeyLoginCommand, FinishPasskeyLoginHandler, FinishPasskeyRegistrationCommand,
+    FinishPasskeyRegistrationHandler, GetCurrentUserHandler, ListPasskeysHandler, LoginCommand,
+    LoginHandler, LoginResult, LogoutCommand, LogoutHandler, RefreshCommand, RefreshHandler,
+    RegisterCommand, RegisterHandler, StartPasskeyLoginCommand, StartPasskeyLoginHandler,
+    StartPasskeyRegistrationCommand, StartPasskeyRegistrationHandler, UserView,
 };
+
+const FAKE_CHALLENGE_BYTES: [u8; 32] = [7u8; 32];
 
 #[derive(Default)]
 struct InMemoryUserRepository {
@@ -68,28 +75,61 @@ impl UserRepository for InMemoryUserRepository {
 
 #[derive(Default)]
 struct InMemoryCredentialRepository {
-    credentials: Mutex<HashMap<Uuid, PasswordCredential>>,
+    credentials: Mutex<HashMap<Uuid, Credential>>,
 }
 
 #[async_trait]
-impl PasswordCredentialRepository for InMemoryCredentialRepository {
-    async fn find_by_user_id(
+impl CredentialRepository for InMemoryCredentialRepository {
+    async fn find_password_by_user_id(
         &self,
         user_id: &UserId,
-    ) -> Result<Option<PasswordCredential>, CredentialRepositoryError> {
+    ) -> Result<Option<Credential>, CredentialRepositoryError> {
         Ok(self
             .credentials
             .lock()
             .unwrap()
             .values()
-            .find(|credential| credential.user_id() == user_id)
+            .find(|credential| {
+                credential.user_id() == user_id && credential.password_hash().is_some()
+            })
             .cloned())
     }
 
-    async fn save(
+    async fn find_passkeys_by_user_id(
         &self,
-        credential: &PasswordCredential,
-    ) -> Result<(), CredentialRepositoryError> {
+        user_id: &UserId,
+    ) -> Result<Vec<Credential>, CredentialRepositoryError> {
+        Ok(self
+            .credentials
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|credential| {
+                credential.user_id() == user_id && credential.passkey().is_some()
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn find_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<Credential>, CredentialRepositoryError> {
+        Ok(self
+            .credentials
+            .lock()
+            .unwrap()
+            .values()
+            .find(|credential| {
+                credential
+                    .passkey()
+                    .map(|passkey| passkey.credential_id() == credential_id)
+                    .unwrap_or(false)
+            })
+            .cloned())
+    }
+
+    async fn save(&self, credential: &Credential) -> Result<(), CredentialRepositoryError> {
         self.credentials
             .lock()
             .unwrap()
@@ -107,23 +147,50 @@ impl PasswordCredentialRepository for InMemoryCredentialRepository {
         }
         Ok(())
     }
+
+    async fn update_sign_count(
+        &self,
+        id: &CredentialId,
+        sign_count: u32,
+    ) -> Result<(), CredentialRepositoryError> {
+        if let Some(credential) = self.credentials.lock().unwrap().get_mut(id.as_uuid()) {
+            credential.set_sign_count(sign_count);
+        }
+        Ok(())
+    }
+
+    async fn delete(&self, id: &CredentialId) -> Result<(), CredentialRepositoryError> {
+        self.credentials.lock().unwrap().remove(id.as_uuid());
+        Ok(())
+    }
 }
 
 struct FailingCredentialRepository;
 
 #[async_trait]
-impl PasswordCredentialRepository for FailingCredentialRepository {
-    async fn find_by_user_id(
+impl CredentialRepository for FailingCredentialRepository {
+    async fn find_password_by_user_id(
         &self,
         _user_id: &UserId,
-    ) -> Result<Option<PasswordCredential>, CredentialRepositoryError> {
+    ) -> Result<Option<Credential>, CredentialRepositoryError> {
         Ok(None)
     }
 
-    async fn save(
+    async fn find_passkeys_by_user_id(
         &self,
-        _credential: &PasswordCredential,
-    ) -> Result<(), CredentialRepositoryError> {
+        _user_id: &UserId,
+    ) -> Result<Vec<Credential>, CredentialRepositoryError> {
+        Ok(Vec::new())
+    }
+
+    async fn find_passkey_by_credential_id(
+        &self,
+        _credential_id: &str,
+    ) -> Result<Option<Credential>, CredentialRepositoryError> {
+        Ok(None)
+    }
+
+    async fn save(&self, _credential: &Credential) -> Result<(), CredentialRepositoryError> {
         Err(CredentialRepositoryError::Unavailable("boom".to_string()))
     }
 
@@ -133,6 +200,115 @@ impl PasswordCredentialRepository for FailingCredentialRepository {
         _now: i64,
     ) -> Result<(), CredentialRepositoryError> {
         Ok(())
+    }
+
+    async fn update_sign_count(
+        &self,
+        _id: &CredentialId,
+        _sign_count: u32,
+    ) -> Result<(), CredentialRepositoryError> {
+        Ok(())
+    }
+
+    async fn delete(&self, _id: &CredentialId) -> Result<(), CredentialRepositoryError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct InMemoryChallengeRepository {
+    challenges: Mutex<HashMap<String, Challenge>>,
+}
+
+#[async_trait]
+impl ChallengeRepository for InMemoryChallengeRepository {
+    async fn save(&self, challenge: &Challenge) -> Result<(), CredentialRepositoryError> {
+        self.challenges
+            .lock()
+            .unwrap()
+            .insert(challenge.challenge().to_string(), challenge.clone());
+        Ok(())
+    }
+
+    async fn consume(
+        &self,
+        challenge: &str,
+    ) -> Result<Option<Challenge>, CredentialRepositoryError> {
+        Ok(self.challenges.lock().unwrap().remove(challenge))
+    }
+}
+
+struct FakeRandomSource;
+
+impl RandomSource for FakeRandomSource {
+    fn random_bytes(&self, length: usize) -> Result<Vec<u8>, PortError> {
+        Ok(vec![FAKE_CHALLENGE_BYTES[0]; length])
+    }
+}
+
+struct FakeWebAuthnVerifier;
+
+#[async_trait]
+impl WebAuthnVerifier for FakeWebAuthnVerifier {
+    fn relying_party_id(&self) -> String {
+        "example.com".to_string()
+    }
+
+    fn relying_party_name(&self) -> String {
+        "Test".to_string()
+    }
+
+    fn parse_client_data(&self, client_data_json: &[u8]) -> Result<CollectedClientData, PortError> {
+        let value: serde_json::Value =
+            serde_json::from_slice(client_data_json).map_err(|_| {
+                PortError::Failure("invalid client data json".to_string())
+            })?;
+        Ok(CollectedClientData {
+            kind: value
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            challenge: value
+                .get("challenge")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            origin: "https://example.com".to_string(),
+        })
+    }
+
+    async fn verify_registration(
+        &self,
+        expected_challenge: &str,
+        client_data_json: &[u8],
+        _attestation_object: &[u8],
+    ) -> Result<PasskeyRegistration, PortError> {
+        let client_data = self.parse_client_data(client_data_json)?;
+        if client_data.challenge != expected_challenge {
+            return Err(PortError::Failure("challenge mismatch".to_string()));
+        }
+        Ok(PasskeyRegistration {
+            credential_id: "cred-1".to_string(),
+            public_key: "cose-key".to_string(),
+            sign_count: 0,
+        })
+    }
+
+    async fn verify_assertion(
+        &self,
+        _passkey: &Passkey,
+        expected_challenge: &str,
+        client_data_json: &[u8],
+        _authenticator_data: &[u8],
+        _signature: &[u8],
+        _require_user_verification: bool,
+    ) -> Result<u32, PortError> {
+        let client_data = self.parse_client_data(client_data_json)?;
+        if client_data.challenge != expected_challenge {
+            return Err(PortError::Failure("challenge mismatch".to_string()));
+        }
+        Ok(1)
     }
 }
 
@@ -267,18 +443,26 @@ struct Fixture {
     refresh: RefreshHandler,
     logout: LogoutHandler,
     current_user: GetCurrentUserHandler,
+    start_passkey_registration: StartPasskeyRegistrationHandler,
+    finish_passkey_registration: FinishPasskeyRegistrationHandler,
+    start_passkey_login: StartPasskeyLoginHandler,
+    finish_passkey_login: FinishPasskeyLoginHandler,
+    list_passkeys: ListPasskeysHandler,
 }
 
 impl Fixture {
     fn new(now: i64) -> Self {
         let users = Arc::new(InMemoryUserRepository::default());
         let credentials = Arc::new(InMemoryCredentialRepository::default());
+        let challenges = Arc::new(InMemoryChallengeRepository::default());
         let refresh_tokens = Arc::new(InMemoryRefreshTokenRepository::default());
         let clock = Arc::new(FakeClock::new(now));
         let hasher = Arc::new(FakePasswordHasher);
         let tokens = Arc::new(FakeTokenService {
             counter: AtomicU64::new(0),
         });
+        let random = Arc::new(FakeRandomSource);
+        let verifier = Arc::new(FakeWebAuthnVerifier);
 
         Self {
             users: users.clone(),
@@ -306,7 +490,38 @@ impl Fixture {
                 clock.clone(),
             ),
             logout: LogoutHandler::new(tokens.clone(), refresh_tokens.clone(), clock.clone()),
-            current_user: GetCurrentUserHandler::new(users, tokens, clock),
+            current_user: GetCurrentUserHandler::new(users.clone(), tokens.clone(), clock.clone()),
+            start_passkey_registration: StartPasskeyRegistrationHandler::new(
+                credentials.clone(),
+                challenges.clone(),
+                random.clone(),
+                verifier.clone(),
+                clock.clone(),
+            ),
+            finish_passkey_registration: FinishPasskeyRegistrationHandler::new(
+                credentials.clone(),
+                challenges.clone(),
+                verifier.clone(),
+                clock.clone(),
+            ),
+            start_passkey_login: StartPasskeyLoginHandler::new(
+                users.clone(),
+                credentials.clone(),
+                challenges.clone(),
+                random,
+                verifier.clone(),
+                clock.clone(),
+            ),
+            finish_passkey_login: FinishPasskeyLoginHandler::new(
+                users.clone(),
+                credentials.clone(),
+                challenges,
+                tokens.clone(),
+                refresh_tokens.clone(),
+                verifier,
+                clock.clone(),
+            ),
+            list_passkeys: ListPasskeysHandler::new(credentials),
         }
     }
 
@@ -328,6 +543,16 @@ impl Fixture {
             })
             .await
             .expect("login should succeed")
+    }
+
+    async fn user_id(&self, username: &str) -> UserId {
+        self.users
+            .find_by_username(&Username::new(username).unwrap())
+            .await
+            .unwrap()
+            .unwrap()
+            .id()
+            .clone()
     }
 }
 
@@ -351,12 +576,15 @@ fn register_creates_user_and_password_credential() {
 
         let credential = fixture
             .credentials
-            .find_by_user_id(stored.id())
+            .find_password_by_user_id(stored.id())
             .await
             .unwrap()
             .unwrap();
         assert_eq!(credential.user_id(), stored.id());
-        assert_eq!(credential.password_hash().as_str(), "hashed:password123");
+        assert_eq!(
+            credential.password_hash().unwrap().as_str(),
+            "hashed:password123"
+        );
         assert_eq!(credential.created_at(), 1_000);
     });
 }
@@ -458,7 +686,7 @@ fn login_returns_tokens_for_valid_credentials() {
         let user_id = UserId::parse(&result.user.id).unwrap();
         let credential = fixture
             .credentials
-            .find_by_user_id(&user_id)
+            .find_password_by_user_id(&user_id)
             .await
             .unwrap()
             .unwrap();
@@ -635,5 +863,150 @@ fn current_user_resolves_access_token() {
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::InvalidToken));
+    });
+}
+
+#[test]
+fn passkey_registration_and_login_flow() {
+    block_on(async {
+        let fixture = Fixture::new(1_000);
+        fixture.register_user("alice", "password123").await;
+        let user_id = fixture.user_id("alice").await;
+
+        let options = fixture
+            .start_passkey_registration
+            .handle(StartPasskeyRegistrationCommand {
+                user_id: user_id.clone(),
+                username: "alice".to_string(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(options.challenge, encode_base64url([FAKE_CHALLENGE_BYTES[0]; 32]));
+        assert_eq!(options.rp_id, "example.com");
+        assert!(options.exclude_credential_ids.is_empty());
+
+        let client_data = serde_json::json!({
+            "type": "webauthn.create",
+            "challenge": options.challenge,
+            "origin": "https://example.com",
+        })
+        .to_string();
+        let registered = fixture
+            .finish_passkey_registration
+            .handle(FinishPasskeyRegistrationCommand {
+                user_id: user_id.clone(),
+                credential_id: "cred-1".to_string(),
+                client_data_json: encode_base64url(client_data.as_bytes()),
+                attestation_object: encode_base64url(b"attestation"),
+                transports: Some(vec!["internal".to_string()]),
+                label: Some("iPhone".to_string()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(registered.label.as_deref(), Some("iPhone"));
+
+        let passkeys = fixture.list_passkeys.handle(&user_id).await.unwrap();
+        assert_eq!(passkeys.len(), 1);
+
+        let login_options = fixture
+            .start_passkey_login
+            .handle(StartPasskeyLoginCommand {
+                username: Some("alice".to_string()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(login_options.allow_credential_ids, vec!["cred-1"]);
+        assert!(!login_options.user_verification);
+
+        let assertion_data = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": login_options.challenge,
+            "origin": "https://example.com",
+        })
+        .to_string();
+        let result = fixture
+            .finish_passkey_login
+            .handle(FinishPasskeyLoginCommand {
+                credential_id: "cred-1".to_string(),
+                client_data_json: encode_base64url(assertion_data.as_bytes()),
+                authenticator_data: encode_base64url(b"auth-data"),
+                signature: encode_base64url(b"signature"),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.user.username, "alice");
+        assert_eq!(
+            fixture
+                .credentials
+                .find_passkey_by_credential_id("cred-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .passkey()
+                .unwrap()
+                .sign_count(),
+            1
+        );
+    });
+}
+
+#[test]
+fn passkey_login_fails_with_bad_challenge() {
+    block_on(async {
+        let fixture = Fixture::new(1_000);
+        fixture.register_user("alice", "password123").await;
+        let user_id = fixture.user_id("alice").await;
+
+        fixture
+            .start_passkey_registration
+            .handle(StartPasskeyRegistrationCommand {
+                user_id: user_id.clone(),
+                username: "alice".to_string(),
+            })
+            .await
+            .unwrap();
+        let client_data = serde_json::json!({
+            "type": "webauthn.create",
+            "challenge": encode_base64url([FAKE_CHALLENGE_BYTES[0]; 32]),
+            "origin": "https://example.com",
+        })
+        .to_string();
+        fixture
+            .finish_passkey_registration
+            .handle(FinishPasskeyRegistrationCommand {
+                user_id: user_id.clone(),
+                credential_id: "cred-1".to_string(),
+                client_data_json: encode_base64url(client_data.as_bytes()),
+                attestation_object: encode_base64url(b"attestation"),
+                transports: None,
+                label: None,
+            })
+            .await
+            .unwrap();
+
+        let _ = fixture
+            .start_passkey_login
+            .handle(StartPasskeyLoginCommand { username: None })
+            .await
+            .unwrap();
+        let wrong_data = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": "wrong-challenge",
+            "origin": "https://example.com",
+        })
+        .to_string();
+
+        let error = fixture
+            .finish_passkey_login
+            .handle(FinishPasskeyLoginCommand {
+                credential_id: "cred-1".to_string(),
+                client_data_json: encode_base64url(wrong_data.as_bytes()),
+                authenticator_data: encode_base64url(b"auth-data"),
+                signature: encode_base64url(b"signature"),
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::Passkey(_)));
     });
 }

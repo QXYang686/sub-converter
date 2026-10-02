@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use user::{RepositoryError, User, UserId, UserRepository, Username};
 
-use crate::domain::{
-    validate_password, CredentialId, PasswordCredential, PasswordCredentialRepository,
-};
+use crate::domain::{validate_password, Credential, CredentialId, CredentialRepository};
 
 use super::dto::UserView;
 use super::error::AppError;
@@ -18,7 +16,7 @@ pub struct RegisterCommand {
 
 pub struct RegisterHandler {
     users: Arc<dyn UserRepository>,
-    credentials: Arc<dyn PasswordCredentialRepository>,
+    credentials: Arc<dyn CredentialRepository>,
     password_hasher: Arc<dyn PasswordHasher>,
     clock: Arc<dyn Clock>,
 }
@@ -26,7 +24,7 @@ pub struct RegisterHandler {
 impl RegisterHandler {
     pub fn new(
         users: Arc<dyn UserRepository>,
-        credentials: Arc<dyn PasswordCredentialRepository>,
+        credentials: Arc<dyn CredentialRepository>,
         password_hasher: Arc<dyn PasswordHasher>,
         clock: Arc<dyn Clock>,
     ) -> Self {
@@ -55,7 +53,7 @@ impl RegisterHandler {
         }
 
         let password_hash = self.password_hasher.hash(&command.password).await?;
-        let credential = PasswordCredential::new(
+        let credential = Credential::password(
             CredentialId::new(),
             user.id().clone(),
             password_hash,

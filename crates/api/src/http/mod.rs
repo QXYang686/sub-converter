@@ -6,7 +6,7 @@ mod state;
 
 pub use state::AppState;
 
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 
 pub fn router(state: AppState) -> Router {
@@ -16,5 +16,26 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/refresh", post(handlers::refresh))
         .route("/api/auth/logout", post(handlers::logout))
         .route("/api/users/me", get(handlers::me))
+        .route(
+            "/api/auth/passkey/register/start",
+            post(handlers::passkey_register_start),
+        )
+        .route(
+            "/api/auth/passkey/register/finish",
+            post(handlers::passkey_register_finish),
+        )
+        .route(
+            "/api/auth/passkey/login/start",
+            post(handlers::passkey_login_start),
+        )
+        .route(
+            "/api/auth/passkey/login/finish",
+            post(handlers::passkey_login_finish),
+        )
+        .route("/api/auth/passkeys", get(handlers::list_passkeys))
+        .route(
+            "/api/auth/passkeys/{id}",
+            delete(handlers::delete_passkey),
+        )
         .with_state(state)
 }

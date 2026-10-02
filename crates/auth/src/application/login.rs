@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use user::{UserRepository, Username};
 
-use crate::domain::PasswordCredentialRepository;
+use crate::domain::CredentialRepository;
 
 use super::dto::UserView;
 use super::error::AppError;
@@ -25,7 +25,7 @@ pub struct LoginResult {
 
 pub struct LoginHandler {
     users: Arc<dyn UserRepository>,
-    credentials: Arc<dyn PasswordCredentialRepository>,
+    credentials: Arc<dyn CredentialRepository>,
     password_hasher: Arc<dyn PasswordHasher>,
     token_service: Arc<dyn TokenService>,
     refresh_tokens: Arc<dyn RefreshTokenRepository>,
@@ -36,7 +36,7 @@ impl LoginHandler {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         users: Arc<dyn UserRepository>,
-        credentials: Arc<dyn PasswordCredentialRepository>,
+        credentials: Arc<dyn CredentialRepository>,
         password_hasher: Arc<dyn PasswordHasher>,
         token_service: Arc<dyn TokenService>,
         refresh_tokens: Arc<dyn RefreshTokenRepository>,
@@ -63,13 +63,16 @@ impl LoginHandler {
 
         let credential = self
             .credentials
-            .find_by_user_id(user.id())
+            .find_password_by_user_id(user.id())
             .await?
+            .ok_or(AppError::InvalidCredentials)?;
+        let password_hash = credential
+            .password_hash()
             .ok_or(AppError::InvalidCredentials)?;
 
         let password_matches = self
             .password_hasher
-            .verify(&command.password, credential.password_hash())
+            .verify(&command.password, password_hash)
             .await?;
         if !password_matches {
             return Err(AppError::InvalidCredentials);

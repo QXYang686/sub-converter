@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::domain::PasswordHash;
+use crate::domain::{Passkey, PasswordHash};
 use user::UserId;
 
 #[derive(Debug, Error)]
@@ -35,8 +35,26 @@ pub struct IssuedRefreshToken {
     pub record: StoredRefreshToken,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectedClientData {
+    pub kind: String,
+    pub challenge: String,
+    pub origin: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasskeyRegistration {
+    pub credential_id: String,
+    pub public_key: String,
+    pub sign_count: u32,
+}
+
 pub trait Clock: Send + Sync {
     fn now(&self) -> i64;
+}
+
+pub trait RandomSource: Send + Sync {
+    fn random_bytes(&self, length: usize) -> Result<Vec<u8>, PortError>;
 }
 
 #[async_trait]
@@ -77,4 +95,30 @@ pub trait RefreshTokenRepository: Send + Sync {
     async fn revoke(&self, id: Uuid, now: i64) -> Result<(), PortError>;
 
     async fn revoke_all_for_user(&self, user_id: &UserId, now: i64) -> Result<(), PortError>;
+}
+
+#[async_trait]
+pub trait WebAuthnVerifier: Send + Sync {
+    fn relying_party_id(&self) -> String;
+
+    fn relying_party_name(&self) -> String;
+
+    fn parse_client_data(&self, client_data_json: &[u8]) -> Result<CollectedClientData, PortError>;
+
+    async fn verify_registration(
+        &self,
+        expected_challenge: &str,
+        client_data_json: &[u8],
+        attestation_object: &[u8],
+    ) -> Result<PasskeyRegistration, PortError>;
+
+    async fn verify_assertion(
+        &self,
+        passkey: &Passkey,
+        expected_challenge: &str,
+        client_data_json: &[u8],
+        authenticator_data: &[u8],
+        signature: &[u8],
+        require_user_verification: bool,
+    ) -> Result<u32, PortError>;
 }

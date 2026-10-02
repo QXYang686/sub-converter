@@ -22,6 +22,10 @@ pub enum AppError {
     InvalidCredentials,
     #[error("invalid token")]
     InvalidToken,
+    #[error("passkey ceremony failed: {0}")]
+    Passkey(String),
+    #[error("not found")]
+    NotFound,
     #[error("internal error: {0}")]
     Internal(String),
 }

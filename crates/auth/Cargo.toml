@@ -10,7 +10,10 @@ name = "auth"
 sub-converter-user = { path = "../user" }
 async-trait = "0.1"
 base64 = "0.22"
+ciborium = "0.2"
+ed25519-dalek = "2"
 hmac = "0.12"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -19,6 +22,7 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4", "js"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

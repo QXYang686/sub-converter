@@ -70,43 +70,116 @@ pub fn validate_password(password: &str) -> Result<(), DomainError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PasswordCredential {
-    id: CredentialId,
-    user_id: UserId,
-    password_hash: PasswordHash,
-    created_at: i64,
-    last_used_at: Option<i64>,
+pub struct Passkey {
+    credential_id: String,
+    public_key: String,
+    sign_count: u32,
+    transports: Option<String>,
 }
 
-impl PasswordCredential {
-    pub fn new(id: CredentialId, user_id: UserId, password_hash: PasswordHash, now: i64) -> Self {
+impl Passkey {
+    pub fn new(
+        credential_id: String,
+        public_key: String,
+        sign_count: u32,
+        transports: Option<String>,
+    ) -> Self {
+        Self {
+            credential_id,
+            public_key,
+            sign_count,
+            transports,
+        }
+    }
+
+    pub fn credential_id(&self) -> &str {
+        &self.credential_id
+    }
+
+    pub fn public_key(&self) -> &str {
+        &self.public_key
+    }
+
+    pub fn sign_count(&self) -> u32 {
+        self.sign_count
+    }
+
+    pub fn transports(&self) -> Option<&str> {
+        self.transports.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CredentialSecret {
+    Password(PasswordHash),
+    Passkey(Passkey),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Credential {
+    id: CredentialId,
+    user_id: UserId,
+    label: Option<String>,
+    created_at: i64,
+    last_used_at: Option<i64>,
+    secret: CredentialSecret,
+}
+
+impl Credential {
+    pub fn password(id: CredentialId, user_id: UserId, password_hash: PasswordHash, now: i64) -> Self {
         Self {
             id,
             user_id,
-            password_hash,
+            label: None,
             created_at: now,
             last_used_at: None,
+            secret: CredentialSecret::Password(password_hash),
+        }
+    }
+
+    pub fn new_passkey(
+        id: CredentialId,
+        user_id: UserId,
+        passkey: Passkey,
+        label: Option<String>,
+        now: i64,
+    ) -> Self {
+        Self {
+            id,
+            user_id,
+            label,
+            created_at: now,
+            last_used_at: None,
+            secret: CredentialSecret::Passkey(passkey),
         }
     }
 
     pub fn restore(
         id: CredentialId,
         user_id: UserId,
-        password_hash: PasswordHash,
+        label: Option<String>,
         created_at: i64,
         last_used_at: Option<i64>,
+        secret: CredentialSecret,
     ) -> Self {
         Self {
             id,
             user_id,
-            password_hash,
+            label,
             created_at,
             last_used_at,
+            secret,
         }
     }
 
     pub fn mark_used(&mut self, now: i64) {
         self.last_used_at = Some(now);
+    }
+
+    pub fn set_sign_count(&mut self, sign_count: u32) {
+        if let CredentialSecret::Passkey(passkey) = &mut self.secret {
+            passkey.sign_count = sign_count;
+        }
     }
 
     pub fn id(&self) -> &CredentialId {
@@ -117,8 +190,8 @@ impl PasswordCredential {
         &self.user_id
     }
 
-    pub fn password_hash(&self) -> &PasswordHash {
-        &self.password_hash
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
 
     pub fn created_at(&self) -> i64 {
@@ -127,6 +200,24 @@ impl PasswordCredential {
 
     pub fn last_used_at(&self) -> Option<i64> {
         self.last_used_at
+    }
+
+    pub fn secret(&self) -> &CredentialSecret {
+        &self.secret
+    }
+
+    pub fn password_hash(&self) -> Option<&PasswordHash> {
+        match &self.secret {
+            CredentialSecret::Password(hash) => Some(hash),
+            CredentialSecret::Passkey(_) => None,
+        }
+    }
+
+    pub fn passkey(&self) -> Option<&Passkey> {
+        match &self.secret {
+            CredentialSecret::Password(_) => None,
+            CredentialSecret::Passkey(passkey) => Some(passkey),
+        }
     }
 }
 
@@ -171,8 +262,8 @@ mod tests {
     }
 
     #[test]
-    fn mark_used_records_timestamp() {
-        let mut credential = PasswordCredential::new(
+    fn password_credential_mark_used_records_timestamp() {
+        let mut credential = Credential::password(
             CredentialId::new(),
             UserId::new(),
             PasswordHash::new("$hash$").unwrap(),
@@ -181,5 +272,20 @@ mod tests {
         assert_eq!(credential.last_used_at(), None);
         credential.mark_used(2_000);
         assert_eq!(credential.last_used_at(), Some(2_000));
+    }
+
+    #[test]
+    fn passkey_credential_updates_sign_count() {
+        let mut credential = Credential::new_passkey(
+            CredentialId::new(),
+            UserId::new(),
+            Passkey::new("cred-1".to_string(), "key".to_string(), 0, None),
+            Some("iPhone".to_string()),
+            1_000,
+        );
+        assert_eq!(credential.passkey().unwrap().sign_count(), 0);
+        credential.set_sign_count(7);
+        assert_eq!(credential.passkey().unwrap().sign_count(), 7);
+        assert!(credential.password_hash().is_none());
     }
 }
