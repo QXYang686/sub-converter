@@ -52,6 +52,7 @@ impl LoginHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: LoginCommand) -> Result<LoginResult, AppError> {
         let username =
             Username::new(&command.username).map_err(|_| AppError::InvalidCredentials)?;

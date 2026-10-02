@@ -22,6 +22,7 @@ impl GetSourceHandler {
         Self { sources }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: GetSourceCommand) -> Result<SourceView, AppError> {
         let source_id = SourceId::parse(&command.source_id).map_err(|_| AppError::NotFound)?;
         let source = self

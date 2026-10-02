@@ -27,6 +27,7 @@ impl LogoutHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: LogoutCommand) -> Result<(), AppError> {
         let token_hash = self.token_service.hash_refresh_token(&command.refresh_token);
         if let Some(stored) = self.refresh_tokens.find_by_hash(&token_hash).await? {

@@ -27,6 +27,7 @@ impl UpdateSourceHandler {
         Self { sources, clock }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: UpdateSourceCommand) -> Result<SourceView, AppError> {
         let source_id = SourceId::parse(&command.source_id).map_err(|_| AppError::NotFound)?;
         let mut source = self

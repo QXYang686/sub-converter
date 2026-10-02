@@ -42,6 +42,7 @@ impl RefreshHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: RefreshCommand) -> Result<RefreshResult, AppError> {
         let now = self.clock.now();
         let token_hash = self.token_service.hash_refresh_token(&command.refresh_token);

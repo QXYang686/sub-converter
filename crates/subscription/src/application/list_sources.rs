@@ -16,6 +16,7 @@ impl ListSourcesHandler {
         Self { sources }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, user_id: &UserId) -> Result<Vec<SourceView>, AppError> {
         let sources = self.sources.list_by_user(user_id).await?;
         Ok(sources.iter().map(SourceView::from).collect())
