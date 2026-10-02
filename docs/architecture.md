@@ -56,6 +56,8 @@ crates/
 
 迁移文件在 `migrations/`，操作规范见 [runbook](runbook.md)。
 
+D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全部仓储共享（顺序一致、首查询走主库），两个库均开启全局读复制；各环境启用 Smart Placement 让 Worker 贴近主库。见 [ADR 0008](decisions/0008-d1-sessions-and-placement.md)。
+
 ## 关键流程
 
 - **注册**：`api` 编排「建 User → 建 Password 凭证」，凭证写入失败时补偿删除 User

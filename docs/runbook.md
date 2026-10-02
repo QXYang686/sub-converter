@@ -46,6 +46,17 @@ npx wrangler tail --env staging --format json               # 实时结构化日
 - 调整采样：`[observability] head_sampling_rate`
 - 免费额度（2026-12-01 起）：logs 与 traces 共用 0.5 GB/天，Free 超限停止摄入、不产生费用
 
+## D1 读复制与放置
+
+```bash
+npx wrangler d1 info sub-converter-db-prod --json   # 查看 read_replication.mode 与 running_in_region
+```
+
+- 读复制通过 Dashboard（D1 → Settings → Enable Read Replication）或 REST API `PUT /accounts/{id}/d1/database/{db_id}`（body `{"read_replication":{"mode":"auto"}}`，需 D1:Edit）开启，`wrangler.toml` 无法配置；关闭后副本最长 24 小时停止服务
+- 复制本身不额外计费；副本只服务读，写仍回主库
+- Worker 请求日志的 `placement` 字段来自 `cf-placement` 响应头：`remote-XXX` 表示 Smart Placement 生效，`local-XXX` 表示就近执行；Placement 分析最多需要 15 分钟
+- 若 D1 span 仍慢：在 traces 里对比 `cloudflare.colo` 与 `cloudflare.d1.response.served_by_region`/`served_by_primary`，并看 `sql_duration_ms` 区分网络与 SQL 时间
+
 ## Secret 轮换
 
 `JWT_SECRET`：
