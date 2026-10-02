@@ -8,5 +8,6 @@ mod text_field;
 pub use alert::Alert;
 pub use guard::{RedirectIfAuthenticated, RequireAuth};
 pub use layout::AppShell;
+pub use spinner::Spinner;
 pub use submit_button::SubmitButton;
 pub use text_field::TextField;
