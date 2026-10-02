@@ -1,4 +1,20 @@
-use super::SourceId;
+use std::collections::BTreeMap;
+
+use super::{SourceId, SubscriptionUserInfo};
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SnapshotMeta {
+    pub body_hash: Option<String>,
+    pub proxy_count: u32,
+    pub group_count: u32,
+    pub rule_count: u32,
+    pub protocol_counts: BTreeMap<String, u32>,
+    pub userinfo: SubscriptionUserInfo,
+    pub update_interval: Option<i64>,
+    pub provider_name: Option<String>,
+    pub provider_url: Option<String>,
+    pub last_error: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceSnapshot {
@@ -7,6 +23,7 @@ pub struct SourceSnapshot {
     etag: Option<String>,
     last_modified: Option<String>,
     fetched_at: i64,
+    meta: SnapshotMeta,
 }
 
 impl SourceSnapshot {
@@ -16,6 +33,7 @@ impl SourceSnapshot {
         etag: Option<String>,
         last_modified: Option<String>,
         fetched_at: i64,
+        meta: SnapshotMeta,
     ) -> Self {
         Self {
             source_id,
@@ -23,6 +41,7 @@ impl SourceSnapshot {
             etag,
             last_modified,
             fetched_at,
+            meta,
         }
     }
 
@@ -45,6 +64,19 @@ impl SourceSnapshot {
     pub fn fetched_at(&self) -> i64 {
         self.fetched_at
     }
+
+    pub fn meta(&self) -> &SnapshotMeta {
+        &self.meta
+    }
+}
+
+pub fn body_hash(body: &[u8]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in body {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
 }
 
 #[cfg(test)]
@@ -60,11 +92,20 @@ mod tests {
             Some("etag".to_string()),
             None,
             1_700_000_000,
+            SnapshotMeta::default(),
         );
         assert_eq!(snapshot.source_id(), &source_id);
         assert_eq!(snapshot.body(), b"proxies: []");
         assert_eq!(snapshot.etag(), Some("etag"));
         assert_eq!(snapshot.last_modified(), None);
         assert_eq!(snapshot.fetched_at(), 1_700_000_000);
+        assert_eq!(snapshot.meta().proxy_count, 0);
+    }
+
+    #[test]
+    fn body_hash_is_stable_and_content_sensitive() {
+        assert_eq!(body_hash(b"abc"), body_hash(b"abc"));
+        assert_ne!(body_hash(b"abc"), body_hash(b"abd"));
+        assert_eq!(body_hash(b"abc").len(), 16);
     }
 }

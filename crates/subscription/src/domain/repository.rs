@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use user::UserId;
 
 use super::{
-    Publication, PublicationId, PublicationSecret, RepositoryError, Source, SourceId,
-    SourceSnapshot,
+    ExtractedConfig, Publication, PublicationId, PublicationSecret, RepositoryError, Source,
+    SourceId, SourceSnapshot,
 };
 
 #[async_trait]
@@ -58,6 +58,12 @@ pub trait SnapshotRepository: Send + Sync {
     ) -> Result<Vec<SourceSnapshot>, RepositoryError>;
 
     async fn save(&self, snapshot: &SourceSnapshot) -> Result<(), RepositoryError>;
+
+    async fn replace_extraction(
+        &self,
+        source_id: &SourceId,
+        extraction: &ExtractedConfig,
+    ) -> Result<(), RepositoryError>;
 
     async fn touch(&self, source_id: &SourceId, fetched_at: i64) -> Result<(), RepositoryError>;
 

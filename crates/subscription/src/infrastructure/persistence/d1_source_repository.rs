@@ -162,6 +162,15 @@ impl SourceRepository for D1SourceRepository {
                         .prepare("DELETE FROM publication_sources WHERE source_id = ?1")
                         .bind_refs(&[D1Type::Text(&id)])?,
                     self.db
+                        .prepare("DELETE FROM source_proxies WHERE source_id = ?1")
+                        .bind_refs(&[D1Type::Text(&id)])?,
+                    self.db
+                        .prepare("DELETE FROM source_proxy_groups WHERE source_id = ?1")
+                        .bind_refs(&[D1Type::Text(&id)])?,
+                    self.db
+                        .prepare("DELETE FROM source_config WHERE source_id = ?1")
+                        .bind_refs(&[D1Type::Text(&id)])?,
+                    self.db
                         .prepare("DELETE FROM source_snapshots WHERE source_id = ?1")
                         .bind_refs(&[D1Type::Text(&id)])?,
                     self.db

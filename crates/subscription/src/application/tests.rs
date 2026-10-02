@@ -7,8 +7,8 @@ use futures::executor::block_on;
 use user::UserId;
 
 use crate::domain::{
-    Publication, PublicationId, PublicationRepository, RepositoryError, SnapshotRepository, Source,
-    SourceId, SourceRepository, SourceSnapshot, SourceUrl,
+    ExtractedConfig, Publication, PublicationId, PublicationRepository, RepositoryError,
+    SnapshotMeta, SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot, SourceUrl,
 };
 
 use super::ports::{
@@ -30,6 +30,7 @@ struct Store {
     sources: Mutex<Vec<Source>>,
     publications: Mutex<Vec<Publication>>,
     snapshots: Mutex<Vec<StoredSnapshot>>,
+    extracted: Mutex<HashMap<SourceId, ExtractedConfig>>,
 }
 
 #[derive(Clone)]
@@ -39,8 +40,8 @@ struct StoredSnapshot {
     etag: Option<String>,
     last_modified: Option<String>,
     fetched_at: i64,
+    meta: SnapshotMeta,
     lease_until: Option<i64>,
-    last_error: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -56,6 +57,7 @@ struct InMemoryPublicationRepository {
 #[derive(Clone, Default)]
 struct InMemorySnapshotRepository {
     store: Arc<Store>,
+    replace_calls: Arc<AtomicUsize>,
 }
 
 impl InMemorySnapshotRepository {
@@ -66,7 +68,26 @@ impl InMemorySnapshotRepository {
             .unwrap()
             .iter()
             .find(|stored| &stored.source_id == source_id)
-            .and_then(|stored| stored.last_error.clone())
+            .and_then(|stored| stored.meta.last_error.clone())
+    }
+
+    fn extraction(&self, source_id: &SourceId) -> Option<ExtractedConfig> {
+        self.store.extracted.lock().unwrap().get(source_id).cloned()
+    }
+
+    fn replace_calls(&self) -> usize {
+        self.replace_calls.load(Ordering::SeqCst)
+    }
+
+    fn to_snapshot(stored: &StoredSnapshot) -> SourceSnapshot {
+        SourceSnapshot::restore(
+            stored.source_id.clone(),
+            stored.body.clone(),
+            stored.etag.clone(),
+            stored.last_modified.clone(),
+            stored.fetched_at,
+            stored.meta.clone(),
+        )
     }
 }
 
@@ -83,15 +104,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             .unwrap()
             .iter()
             .find(|stored| &stored.source_id == source_id)
-            .map(|stored| {
-                SourceSnapshot::restore(
-                    stored.source_id.clone(),
-                    stored.body.clone(),
-                    stored.etag.clone(),
-                    stored.last_modified.clone(),
-                    stored.fetched_at,
-                )
-            }))
+            .map(Self::to_snapshot))
     }
 
     async fn list_by_sources(
@@ -105,15 +118,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             .unwrap()
             .iter()
             .filter(|stored| !stored.body.is_empty() && source_ids.contains(&stored.source_id))
-            .map(|stored| {
-                SourceSnapshot::restore(
-                    stored.source_id.clone(),
-                    stored.body.clone(),
-                    stored.etag.clone(),
-                    stored.last_modified.clone(),
-                    stored.fetched_at,
-                )
-            })
+            .map(Self::to_snapshot)
             .collect())
     }
 
@@ -125,8 +130,8 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             etag: snapshot.etag().map(str::to_string),
             last_modified: snapshot.last_modified().map(str::to_string),
             fetched_at: snapshot.fetched_at(),
+            meta: snapshot.meta().clone(),
             lease_until: None,
-            last_error: None,
         };
         match snapshots
             .iter_mut()
@@ -135,6 +140,20 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             Some(existing) => *existing = stored,
             None => snapshots.push(stored),
         }
+        Ok(())
+    }
+
+    async fn replace_extraction(
+        &self,
+        source_id: &SourceId,
+        extraction: &ExtractedConfig,
+    ) -> Result<(), RepositoryError> {
+        self.replace_calls.fetch_add(1, Ordering::SeqCst);
+        self.store
+            .extracted
+            .lock()
+            .unwrap()
+            .insert(source_id.clone(), extraction.clone());
         Ok(())
     }
 
@@ -149,7 +168,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
         {
             stored.fetched_at = fetched_at;
             stored.lease_until = None;
-            stored.last_error = None;
+            stored.meta.last_error = None;
         }
         Ok(())
     }
@@ -162,7 +181,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
         {
             Some(stored) => {
                 stored.lease_until = None;
-                stored.last_error = Some(error.to_string());
+                stored.meta.last_error = Some(error.to_string());
             }
             None => snapshots.push(StoredSnapshot {
                 source_id: source_id.clone(),
@@ -170,8 +189,11 @@ impl SnapshotRepository for InMemorySnapshotRepository {
                 etag: None,
                 last_modified: None,
                 fetched_at: 0,
+                meta: SnapshotMeta {
+                    last_error: Some(error.to_string()),
+                    ..SnapshotMeta::default()
+                },
                 lease_until: None,
-                last_error: Some(error.to_string()),
             }),
         }
         Ok(())
@@ -183,6 +205,7 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             .lock()
             .unwrap()
             .retain(|stored| &stored.source_id != source_id);
+        self.store.extracted.lock().unwrap().remove(source_id);
         Ok(())
     }
 
@@ -211,8 +234,8 @@ impl SnapshotRepository for InMemorySnapshotRepository {
                     etag: None,
                     last_modified: None,
                     fetched_at: 0,
+                    meta: SnapshotMeta::default(),
                     lease_until: Some(lease_until),
-                    last_error: None,
                 });
                 Ok(true)
             }
@@ -515,7 +538,10 @@ impl Fixture {
             publications: Arc::new(InMemoryPublicationRepository {
                 store: store.clone(),
             }),
-            snapshots: Arc::new(InMemorySnapshotRepository { store }),
+            snapshots: Arc::new(InMemorySnapshotRepository {
+                store,
+                replace_calls: Arc::new(AtomicUsize::new(0)),
+            }),
             fetcher: Arc::new(FakeFetcher::default()),
             background: Arc::new(RecordingBackgroundTasks::default()),
             clock: Arc::new(FakeClock::new(now)),
@@ -1100,6 +1126,7 @@ fn seed_snapshot(fixture: &Fixture, source_id: &str, body: &str) {
         None,
         None,
         1_000,
+        SnapshotMeta::default(),
     )))
     .unwrap();
 }
@@ -1339,6 +1366,7 @@ fn refresh_source_conditional_hit_updates_timestamp() {
         Some("etag-a".to_string()),
         Some("lm-a".to_string()),
         1_000,
+        SnapshotMeta::default(),
     )))
     .unwrap();
 
