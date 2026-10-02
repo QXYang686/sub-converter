@@ -100,13 +100,27 @@ npx wrangler d1 migrations apply sub-converter-db-prod --remote --env production
 npx wrangler deploy --env production
 ```
 
+## 环境
+
+| 环境 | Worker | 地址 / 数据库 |
+|---|---|---|
+| 生产 | `sub-converter` | https://sub.yqxpro.com，`sub-converter-db-prod` |
+| Staging | `sub-converter-staging` | https://sub-converter-staging.yqxpro.workers.dev，`sub-converter-db-dev` |
+
+功能验证（注册/登录/清理）在 staging 进行；生产只做只读冒烟。
+
 ## GitHub Actions
 
-推送到 `main` 自动执行测试、应用 D1 迁移并部署到生产。在仓库 Settings → Secrets and variables → Actions 添加：
+| 工作流 | 触发 | 说明 |
+|---|---|---|
+| `Deploy` | push 到 `main` | 测试 + 迁移生产库 + 部署生产 |
+| `Deploy Staging` | 手动触发 | 测试 + 迁移 dev 库 + 部署 staging |
+
+在仓库 Settings → Secrets and variables → Actions 添加：
 
 | Secret | 说明 |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | 建议用 "Edit Cloudflare Workers" 模板，并额外授予 D1 Edit 权限 |
 | `CLOUDFLARE_ACCOUNT_ID` | `npx wrangler whoami` 可查 |
 
-未配置 `CLOUDFLARE_API_TOKEN` 时工作流会跳过部署（warning），不会失败。
+未配置 `CLOUDFLARE_API_TOKEN` 时生产工作流会跳过部署（warning），不会失败。

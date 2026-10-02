@@ -26,3 +26,11 @@ database_id = "8a4ff7ef-fcff-4594-830c-da5604ec8c73"
 [[env.production.routes]]
 pattern = "sub.yqxpro.com"
 custom_domain = true
+
+[env.staging]
+name = "sub-converter-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "sub-converter-db-dev"
+database_id = "4b68349b-cb37-461d-9fa3-90bf4e87f2c0"
