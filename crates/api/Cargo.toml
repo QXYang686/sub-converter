@@ -12,9 +12,16 @@ sub-converter-auth = { path = "../auth" }
 sub-converter-contract = { path = "../contract" }
 sub-converter-subscription = { path = "../subscription" }
 sub-converter-user = { path = "../user" }
-axum = { version = "0.8", default-features = false, features = ["json"] }
+axum = { version = "0.8", default-features = false, features = ["json", "matched-path"] }
 tower-service = "0.3.3"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "js"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 worker = { version = "0.8", features = ["http", "axum", "d1"] }
 worker-macros = { version = "0.8", features = ["http"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "std"] }
+
+[dev-dependencies]
+futures = "0.3"
+tower = { version = "0.5", features = ["util"] }
