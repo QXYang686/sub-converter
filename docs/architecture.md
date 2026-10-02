@@ -62,7 +62,9 @@ crates/
 | `refresh_tokens` | 只存 token 的 SHA-256 哈希、过期与吊销时间 |
 | `webauthn_challenges` | 一次性 challenge，注册/登录各一种 kind，5 分钟 TTL，消费即删 |
 | `sources` / `publications` / `publication_sources` | 订阅源、发布订阅及有序绑定 |
-| `source_snapshots` | 每个源最近一次成功抓取的原始 body（BLOB，≤1.8MB）、ETag/Last-Modified、刷新租约与最近错误 |
+| `source_snapshots` | 每个源最近一次成功抓取的原始 body（BLOB，≤1.8MB）、ETag/Last-Modified、刷新租约、最近错误，以及 body 哈希、节点/分组/规则计数、协议分布、订阅流量与机场名 |
+| `source_proxies` / `source_proxy_groups` | 从快照提取的节点与分组，逐行存储，`options` 为完整原始字段 JSON |
+| `source_config` | 从快照提取的规则数组与顶层设置（dns/tun/hosts/rule-providers 等）JSON |
 
 迁移文件在 `migrations/`，操作规范见 [runbook](runbook.md)。
 
@@ -75,8 +77,8 @@ D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全
 - **Passkey 注册**：start 生成 challenge + options（需登录）→ 浏览器 `navigator.credentials.create` → finish 验签并存公钥
 - **Passkey 登录**：start（可带用户名绑定 allowCredentials，也可 discoverable）→ `credentials.get` → finish 验签并签发会话
 - **会话**：access token 15 分钟只存内存；refresh token 30 天走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，D1 存哈希，刷新轮换，重放检测吊销整族
-- **拉取**：源变更或公开拉取时经 `wait_until` 异步抓取（固定 FlClash UA，条件请求，租约去重），原始响应体存 `source_snapshots`，失败保留旧快照并记录错误
-- **转换与分发**：`GET /s/{secret}` 读取快照 → 按绑定顺序解析 Clash `proxies`（vmess/anytls/hysteria2）→ 身份去重、名字去重 → 渲染最小完整配置；无快照返回空配置并触发抓取。详见 [ADR 0009](decisions/0009-pull-convert-serve.md)
+- **拉取**：源变更或公开拉取时经 `wait_until` 异步抓取（固定 FlClash UA，条件请求，租约去重），原始响应体与订阅响应头存 `source_snapshots`，并提取全部协议节点、分组、规则与顶层设置；body 哈希未变只更新元数据，失败保留旧快照与旧提取数据并记录错误
+- **转换与分发**：`GET /s/{secret}` 读取快照 → 按绑定顺序合并全部 Clash `proxies`（不再限制协议）→ 去 name 规范化 JSON 身份去重、名字去重 → 渲染最小完整配置；无快照返回空配置并触发抓取。详见 [ADR 0009](decisions/0009-pull-convert-serve.md) 与 [ADR 0010](decisions/0010-extract-subscription-content.md)
 
 ## 配置分层
 

@@ -42,12 +42,12 @@ npx wrangler deploy --dry-run --env production             # 本地验证生产�
 | POST | `/api/auth/passkey/register/{start,finish}` | 登录后添加 Passkey |
 | POST | `/api/auth/passkey/login/{start,finish}` | Passkey 登录（支持 discoverable） |
 | GET / DELETE | `/api/auth/passkeys[/{id}]` | 管理 Passkey |
-| GET/POST | `/api/subscriptions/sources` | 订阅源列表 / 新建（同用户 URL 唯一） |
+| GET/POST | `/api/subscriptions/sources` | 订阅源列表（含抓取快照摘要：流量/到期/节点与协议分布/最近错误）/ 新建（同用户 URL 唯一） |
 | GET/PATCH/DELETE | `/api/subscriptions/sources/{id}` | 订阅源详情 / 修改 / 删除 |
 | GET/POST | `/api/subscriptions/publications` | 发布订阅列表 / 新建（生成 secret 并绑定源） |
 | GET/PATCH/DELETE | `/api/subscriptions/publications/{id}` | 发布订阅详情 / 修改（含 expiresAt）/ 删除 |
 | PUT | `/api/subscriptions/publications/{id}/sources` | 整体设置有序订阅源组成 |
-| GET | `/s/{secret}?target=clash` | 公开订阅分发（无需鉴权），返回 Clash YAML，无快照时返回空配置并触发后台抓取；未知/禁用/过期 404 |
+| GET | `/s/{secret}?target=clash` | 公开订阅分发（无需鉴权），返回 Clash YAML（全协议），无快照时返回空配置并触发后台抓取；未知/禁用/过期 404 |
 
 refresh token 走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，JS 不可读；refresh/logout 需带 `X-Requested-With: XMLHttpRequest`。错误统一为 `{"error":{"code","message"}}`（422 校验、409 冲突、401 凭证/令牌、403 CSRF、404 不存在）。
 
