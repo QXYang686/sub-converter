@@ -91,6 +91,11 @@ npx wrangler tail --env production                                          # �
 
 | 现象 | 原因 / 处理 |
 |---|---|
+| `/s/{secret}` 返回空配置或缺少某个源的节点 | 首次拉取尚无快照，或该源解析不出受支持协议（vmess/anytls/hysteria2）。查 `SELECT source_id, length(body), last_error FROM source_snapshots`；抓取完成后自动恢复，失败会保留旧快照 |
+| 源返回 403 或内容异常 | 机场常按 User-Agent 分流。抓取固定用 `FlClash/v0.8.92 clash-verge Platform/macos`（ADR 0009）；源方策略变化时更新 `crates/subscription/src/infrastructure/fetch/http_fetcher.rs` 的常量并重新部署 |
+| 日志出现 `Network connection lost` | 源站对 Cloudflare 出网偶发 TLS 抖动或拦截；租约 120s 后下次拉取会自动重试，持续失败考虑换源 |
+| 源抓取长期失败但旧数据仍可用 | 预期行为：失败只记 `last_error`，不覆盖最后一次成功快照 |
+| 订阅体超过 1.8 MB | 抓取层按 `TooLarge` 跳过（D1 单行约 2 MB），需要更大容量时改 gzip+base64 或迁 KV/R2 |
 | 注册 500，日志 `iteration counts above 100000 are not supported` | 生产 WebCrypto PBKDF2 上限 100k，不能调高迭代（见 ADR 0003） |
 | 登录后 cookie 没存下 | 本地请用 `http://localhost:8080`；`Secure` cookie 在非 localhost 的 http 下会被拒 |
 | Passkey 注册/登录 422 | origin 不在 `WEBAUTHN_ORIGINS`，或 rpIdHash 与 `WEBAUTHN_RP_ID` 不匹配 |
