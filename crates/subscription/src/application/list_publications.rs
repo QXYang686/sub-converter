@@ -16,6 +16,7 @@ impl ListPublicationsHandler {
         Self { publications }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, user_id: &UserId) -> Result<Vec<PublicationView>, AppError> {
         let publications = self.publications.list_by_user(user_id).await?;
         Ok(publications.iter().map(PublicationView::from).collect())

@@ -22,6 +22,7 @@ impl GetPublicationHandler {
         Self { publications }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(
         &self,
         command: GetPublicationCommand,

@@ -36,6 +36,7 @@ impl RegisterHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: RegisterCommand) -> Result<UserView, AppError> {
         let username = Username::new(&command.username).map_err(|_| AppError::InvalidUsername)?;
         validate_password(&command.password).map_err(|_| AppError::InvalidPassword)?;

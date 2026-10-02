@@ -30,6 +30,7 @@ impl UpdatePublicationHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(
         &self,
         command: UpdatePublicationCommand,

@@ -21,6 +21,7 @@ impl DeletePasskeyHandler {
         Self { credentials }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: DeletePasskeyCommand) -> Result<(), AppError> {
         let credential_id =
             CredentialId::parse(&command.credential_id).map_err(|_| AppError::NotFound)?;

@@ -25,6 +25,7 @@ impl GetCurrentUserHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, access_token: &str) -> Result<UserView, AppError> {
         let user_id = self
             .token_service

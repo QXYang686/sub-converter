@@ -24,6 +24,7 @@ impl ListPasskeysHandler {
         Self { credentials }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, user_id: &UserId) -> Result<Vec<PasskeyView>, AppError> {
         let passkeys = self.credentials.find_passkeys_by_user_id(user_id).await?;
         Ok(passkeys

@@ -28,6 +28,7 @@ impl CreateSourceHandler {
         Self { sources, clock }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: CreateSourceCommand) -> Result<SourceView, AppError> {
         let name = SubscriptionName::new(&command.name).map_err(|_| AppError::InvalidName)?;
         let url = SourceUrl::new(&command.url).map_err(|_| AppError::InvalidSourceUrl)?;

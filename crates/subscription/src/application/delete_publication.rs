@@ -21,6 +21,7 @@ impl DeletePublicationHandler {
         Self { publications }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn handle(&self, command: DeletePublicationCommand) -> Result<(), AppError> {
         let publication_id =
             PublicationId::parse(&command.publication_id).map_err(|_| AppError::NotFound)?;
