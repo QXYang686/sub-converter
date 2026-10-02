@@ -1,5 +1,5 @@
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -7,16 +7,20 @@ use futures::executor::block_on;
 use user::UserId;
 
 use crate::domain::{
-    Publication, PublicationId, PublicationRepository, RepositoryError, Source, SourceId,
-    SourceRepository,
+    Publication, PublicationId, PublicationRepository, RepositoryError, SnapshotRepository, Source,
+    SourceId, SourceRepository, SourceSnapshot, SourceUrl,
 };
 
-use super::ports::{Clock, PortError, SecretGenerator};
+use super::ports::{
+    BackgroundTask, BackgroundTasks, Clock, FetchError, FetchOutcome, FetchValidators,
+    FetchedDocument, Fetcher, PortError, SecretGenerator, SubscriptionFormat,
+};
 use super::{
     AppError, CreatePublicationCommand, CreatePublicationHandler, CreateSourceCommand,
     CreateSourceHandler, DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand,
     DeleteSourceHandler, GetPublicationCommand, GetPublicationHandler, GetSourceCommand,
     GetSourceHandler, ListPublicationsHandler, ListSourcesHandler, PublicationView,
+    RefreshSourceHandler, RefreshStatus, ServePublicationCommand, ServePublicationHandler,
     SetPublicationSourcesCommand, SetPublicationSourcesHandler, SourceView,
     UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand, UpdateSourceHandler,
 };
@@ -25,6 +29,18 @@ use super::{
 struct Store {
     sources: Mutex<Vec<Source>>,
     publications: Mutex<Vec<Publication>>,
+    snapshots: Mutex<Vec<StoredSnapshot>>,
+}
+
+#[derive(Clone)]
+struct StoredSnapshot {
+    source_id: SourceId,
+    body: Vec<u8>,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    fetched_at: i64,
+    lease_until: Option<i64>,
+    last_error: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -35,6 +51,234 @@ struct InMemorySourceRepository {
 #[derive(Clone, Default)]
 struct InMemoryPublicationRepository {
     store: Arc<Store>,
+}
+
+#[derive(Clone, Default)]
+struct InMemorySnapshotRepository {
+    store: Arc<Store>,
+}
+
+impl InMemorySnapshotRepository {
+    fn last_error(&self, source_id: &SourceId) -> Option<String> {
+        self.store
+            .snapshots
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|stored| &stored.source_id == source_id)
+            .and_then(|stored| stored.last_error.clone())
+    }
+}
+
+#[async_trait]
+impl SnapshotRepository for InMemorySnapshotRepository {
+    async fn find_by_source(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Option<SourceSnapshot>, RepositoryError> {
+        Ok(self
+            .store
+            .snapshots
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|stored| &stored.source_id == source_id)
+            .map(|stored| {
+                SourceSnapshot::restore(
+                    stored.source_id.clone(),
+                    stored.body.clone(),
+                    stored.etag.clone(),
+                    stored.last_modified.clone(),
+                    stored.fetched_at,
+                )
+            }))
+    }
+
+    async fn list_by_sources(
+        &self,
+        source_ids: &[SourceId],
+    ) -> Result<Vec<SourceSnapshot>, RepositoryError> {
+        Ok(self
+            .store
+            .snapshots
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|stored| !stored.body.is_empty() && source_ids.contains(&stored.source_id))
+            .map(|stored| {
+                SourceSnapshot::restore(
+                    stored.source_id.clone(),
+                    stored.body.clone(),
+                    stored.etag.clone(),
+                    stored.last_modified.clone(),
+                    stored.fetched_at,
+                )
+            })
+            .collect())
+    }
+
+    async fn save(&self, snapshot: &SourceSnapshot) -> Result<(), RepositoryError> {
+        let mut snapshots = self.store.snapshots.lock().unwrap();
+        let stored = StoredSnapshot {
+            source_id: snapshot.source_id().clone(),
+            body: snapshot.body().to_vec(),
+            etag: snapshot.etag().map(str::to_string),
+            last_modified: snapshot.last_modified().map(str::to_string),
+            fetched_at: snapshot.fetched_at(),
+            lease_until: None,
+            last_error: None,
+        };
+        match snapshots
+            .iter_mut()
+            .find(|existing| existing.source_id == stored.source_id)
+        {
+            Some(existing) => *existing = stored,
+            None => snapshots.push(stored),
+        }
+        Ok(())
+    }
+
+    async fn touch(&self, source_id: &SourceId, fetched_at: i64) -> Result<(), RepositoryError> {
+        if let Some(stored) = self
+            .store
+            .snapshots
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|stored| &stored.source_id == source_id)
+        {
+            stored.fetched_at = fetched_at;
+            stored.lease_until = None;
+            stored.last_error = None;
+        }
+        Ok(())
+    }
+
+    async fn record_error(&self, source_id: &SourceId, error: &str) -> Result<(), RepositoryError> {
+        let mut snapshots = self.store.snapshots.lock().unwrap();
+        match snapshots
+            .iter_mut()
+            .find(|stored| &stored.source_id == source_id)
+        {
+            Some(stored) => {
+                stored.lease_until = None;
+                stored.last_error = Some(error.to_string());
+            }
+            None => snapshots.push(StoredSnapshot {
+                source_id: source_id.clone(),
+                body: Vec::new(),
+                etag: None,
+                last_modified: None,
+                fetched_at: 0,
+                lease_until: None,
+                last_error: Some(error.to_string()),
+            }),
+        }
+        Ok(())
+    }
+
+    async fn clear(&self, source_id: &SourceId) -> Result<(), RepositoryError> {
+        self.store
+            .snapshots
+            .lock()
+            .unwrap()
+            .retain(|stored| &stored.source_id != source_id);
+        Ok(())
+    }
+
+    async fn try_acquire_lease(
+        &self,
+        source_id: &SourceId,
+        now: i64,
+        lease_until: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut snapshots = self.store.snapshots.lock().unwrap();
+        match snapshots
+            .iter_mut()
+            .find(|stored| &stored.source_id == source_id)
+        {
+            Some(stored) => {
+                let available = stored.lease_until.is_none_or(|lease| lease < now);
+                if available {
+                    stored.lease_until = Some(lease_until);
+                }
+                Ok(available)
+            }
+            None => {
+                snapshots.push(StoredSnapshot {
+                    source_id: source_id.clone(),
+                    body: Vec::new(),
+                    etag: None,
+                    last_modified: None,
+                    fetched_at: 0,
+                    lease_until: Some(lease_until),
+                    last_error: None,
+                });
+                Ok(true)
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct FakeFetcher {
+    responses: Mutex<HashMap<String, Result<FetchOutcome, FetchError>>>,
+    calls: AtomicUsize,
+    last_validators: Mutex<Option<FetchValidators>>,
+}
+
+impl FakeFetcher {
+    fn stub(&self, url: &str, outcome: Result<FetchOutcome, FetchError>) {
+        self.responses
+            .lock()
+            .unwrap()
+            .insert(url.to_string(), outcome);
+    }
+}
+
+#[async_trait]
+impl Fetcher for FakeFetcher {
+    async fn fetch(
+        &self,
+        url: &SourceUrl,
+        validators: &FetchValidators,
+    ) -> Result<FetchOutcome, FetchError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        *self.last_validators.lock().unwrap() = Some(validators.clone());
+        self.responses
+            .lock()
+            .unwrap()
+            .get(url.value())
+            .cloned()
+            .unwrap_or(Err(FetchError::Failure("no stub".to_string())))
+    }
+}
+
+#[derive(Default)]
+struct RecordingBackgroundTasks {
+    tasks: Mutex<Vec<BackgroundTask>>,
+}
+
+impl RecordingBackgroundTasks {
+    fn pending(&self) -> usize {
+        self.tasks.lock().unwrap().len()
+    }
+
+    fn run_all(&self) {
+        loop {
+            let task = self.tasks.lock().unwrap().pop();
+            match task {
+                Some(task) => block_on(task),
+                None => break,
+            }
+        }
+    }
+}
+
+impl BackgroundTasks for RecordingBackgroundTasks {
+    fn spawn(&self, task: BackgroundTask) {
+        self.tasks.lock().unwrap().push(task);
+    }
 }
 
 fn publication_with_existing_sources(
@@ -152,6 +396,25 @@ impl PublicationRepository for InMemoryPublicationRepository {
             .map(|publication| publication_with_existing_sources(publication, &existing)))
     }
 
+    async fn find_by_secret(
+        &self,
+        secret: &crate::domain::PublicationSecret,
+    ) -> Result<Option<Publication>, RepositoryError> {
+        let existing: HashSet<SourceId> = self
+            .store
+            .sources
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|source| source.id().clone())
+            .collect();
+        let publications = self.store.publications.lock().unwrap();
+        Ok(publications
+            .iter()
+            .find(|publication| publication.secret() == secret)
+            .map(|publication| publication_with_existing_sources(publication, &existing)))
+    }
+
     async fn list_by_user(&self, user_id: &UserId) -> Result<Vec<Publication>, RepositoryError> {
         let existing: HashSet<SourceId> = self
             .store
@@ -235,6 +498,9 @@ impl SecretGenerator for FakeSecretGenerator {
 struct Fixture {
     sources: Arc<InMemorySourceRepository>,
     publications: Arc<InMemoryPublicationRepository>,
+    snapshots: Arc<InMemorySnapshotRepository>,
+    fetcher: Arc<FakeFetcher>,
+    background: Arc<RecordingBackgroundTasks>,
     clock: Arc<FakeClock>,
     secrets: Arc<FakeSecretGenerator>,
 }
@@ -246,10 +512,34 @@ impl Fixture {
             sources: Arc::new(InMemorySourceRepository {
                 store: store.clone(),
             }),
-            publications: Arc::new(InMemoryPublicationRepository { store }),
+            publications: Arc::new(InMemoryPublicationRepository {
+                store: store.clone(),
+            }),
+            snapshots: Arc::new(InMemorySnapshotRepository { store }),
+            fetcher: Arc::new(FakeFetcher::default()),
+            background: Arc::new(RecordingBackgroundTasks::default()),
             clock: Arc::new(FakeClock::new(now)),
             secrets: Arc::new(FakeSecretGenerator(AtomicU64::new(0))),
         }
+    }
+
+    fn refresh_source(&self) -> RefreshSourceHandler {
+        RefreshSourceHandler::new(
+            self.fetcher.clone(),
+            self.snapshots.clone(),
+            self.clock.clone(),
+        )
+    }
+
+    fn serve_publication(&self) -> ServePublicationHandler {
+        ServePublicationHandler::new(
+            self.publications.clone(),
+            self.sources.clone(),
+            self.snapshots.clone(),
+            Arc::new(self.refresh_source()),
+            self.background.clone(),
+            self.clock.clone(),
+        )
     }
 
     fn create_source(&self) -> CreateSourceHandler {
@@ -774,4 +1064,335 @@ fn publication_operations_are_scoped_to_owner() {
         publication_id: publication.id,
     }));
     assert!(matches!(gone, Err(AppError::NotFound)));
+}
+
+const SNAPSHOT_A: &str = r#"
+proxies:
+  - name: A 节点
+    type: vmess
+    server: a.example.com
+    port: 443
+    uuid: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+"#;
+
+const SNAPSHOT_B: &str = r#"
+proxies:
+  - name: B 节点
+    type: hysteria2
+    server: b.example.com
+    port: 443
+    password: b-secret
+"#;
+
+fn source_url(value: &str) -> SourceUrl {
+    SourceUrl::new(value).unwrap()
+}
+
+fn source_id_of(view: &SourceView) -> SourceId {
+    SourceId::parse(&view.id).unwrap()
+}
+
+fn seed_snapshot(fixture: &Fixture, source_id: &str, body: &str) {
+    let source_id = SourceId::parse(source_id).unwrap();
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id,
+        body.as_bytes().to_vec(),
+        None,
+        None,
+        1_000,
+    )))
+    .unwrap();
+}
+
+fn fetched(body: &str) -> Result<FetchOutcome, FetchError> {
+    Ok(FetchOutcome::Fetched(FetchedDocument {
+        body: body.as_bytes().to_vec(),
+        etag: None,
+        last_modified: None,
+    }))
+}
+
+fn serve_command(secret: &str) -> ServePublicationCommand {
+    ServePublicationCommand {
+        secret: secret.to_string(),
+        format: SubscriptionFormat::Clash,
+    }
+}
+
+#[test]
+fn serve_publication_returns_empty_config_on_cold_start() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &user_id, "合并", vec![source.id.clone()]);
+    fixture
+        .fetcher
+        .stub("https://a.example.com/sub", fetched(SNAPSHOT_A));
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    assert!(served.content.contains("proxies: []"));
+    assert!(served.content.contains("DIRECT"));
+    assert_eq!(fixture.background.pending(), 1);
+    assert_eq!(fixture.fetcher.calls.load(Ordering::SeqCst), 0);
+
+    fixture.background.run_all();
+    assert_eq!(fixture.fetcher.calls.load(Ordering::SeqCst), 1);
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    assert!(served.content.contains("A 节点"));
+}
+
+#[test]
+fn serve_publication_merges_snapshots_in_binding_order() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let first = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let second = create_source(&fixture, &user_id, "B", "https://b.example.com/sub");
+    let publication = create_publication(
+        &fixture,
+        &user_id,
+        "合并",
+        vec![second.id.clone(), first.id.clone()],
+    );
+    seed_snapshot(&fixture, &first.id, SNAPSHOT_A);
+    seed_snapshot(&fixture, &second.id, SNAPSHOT_B);
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    let first_index = served.content.find("B 节点").unwrap();
+    let second_index = served.content.find("A 节点").unwrap();
+    assert!(
+        first_index < second_index,
+        "binding order must be preserved: {}",
+        served.content
+    );
+}
+
+#[test]
+fn serve_publication_skips_disabled_sources() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let enabled = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let disabled = block_on(fixture.create_source().handle(CreateSourceCommand {
+        user_id: user_id.clone(),
+        name: "B".to_string(),
+        url: "https://b.example.com/sub".to_string(),
+        enabled: Some(false),
+    }))
+    .unwrap();
+    let publication = create_publication(
+        &fixture,
+        &user_id,
+        "合并",
+        vec![disabled.id.clone(), enabled.id.clone()],
+    );
+    seed_snapshot(&fixture, &enabled.id, SNAPSHOT_A);
+    seed_snapshot(&fixture, &disabled.id, SNAPSHOT_B);
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    assert!(served.content.contains("A 节点"));
+    assert!(!served.content.contains("B 节点"));
+    assert_eq!(fixture.background.pending(), 1);
+}
+
+#[test]
+fn serve_publication_hides_unavailable_publications() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &user_id, "合并", vec![source.id.clone()]);
+
+    let unknown = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&"x".repeat(32))),
+    );
+    assert!(matches!(unknown, Err(AppError::NotFound)));
+
+    block_on(
+        fixture
+            .update_publication()
+            .handle(UpdatePublicationCommand {
+                user_id: user_id.clone(),
+                publication_id: publication.id.clone(),
+                name: None,
+                enabled: Some(false),
+                expires_at: None,
+            }),
+    )
+    .unwrap();
+    let disabled = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    );
+    assert!(matches!(disabled, Err(AppError::NotFound)));
+
+    block_on(
+        fixture
+            .update_publication()
+            .handle(UpdatePublicationCommand {
+                user_id,
+                publication_id: publication.id.clone(),
+                name: None,
+                enabled: Some(true),
+                expires_at: Some(Some(500)),
+            }),
+    )
+    .unwrap();
+    let expired = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    );
+    assert!(matches!(expired, Err(AppError::NotFound)));
+}
+
+#[test]
+fn refresh_source_skips_when_lease_is_held() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+
+    assert!(block_on(
+        fixture
+            .snapshots
+            .try_acquire_lease(&source_id, 1_000, 1_120)
+    )
+    .unwrap());
+
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::InProgress);
+    assert_eq!(fixture.fetcher.calls.load(Ordering::SeqCst), 0);
+
+    fixture.clock.set(1_121);
+    fixture.fetcher.stub(&source.url, fetched(SNAPSHOT_A));
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::Refreshed);
+}
+
+#[test]
+fn refresh_source_failure_keeps_previous_snapshot() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+    fixture
+        .fetcher
+        .stub(&source.url, Err(FetchError::Status(500)));
+
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::Failed);
+
+    let stored = block_on(fixture.snapshots.find_by_source(&source_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.body(), SNAPSHOT_A.as_bytes());
+    assert!(fixture.snapshots.last_error(&source_id).is_some());
+}
+
+#[test]
+fn refresh_source_conditional_hit_updates_timestamp() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id.clone(),
+        SNAPSHOT_A.as_bytes().to_vec(),
+        Some("etag-a".to_string()),
+        Some("lm-a".to_string()),
+        1_000,
+    )))
+    .unwrap();
+
+    fixture.clock.set(2_000);
+    fixture
+        .fetcher
+        .stub(&source.url, Ok(FetchOutcome::NotModified));
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::NotModified);
+
+    let validators = fixture
+        .fetcher
+        .last_validators
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap();
+    assert_eq!(validators.etag.as_deref(), Some("etag-a"));
+    assert_eq!(validators.last_modified.as_deref(), Some("lm-a"));
+
+    let stored = block_on(fixture.snapshots.find_by_source(&source_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.body(), SNAPSHOT_A.as_bytes());
+    assert_eq!(stored.fetched_at(), 2_000);
+}
+
+#[test]
+fn refresh_source_rejects_body_without_supported_proxies() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+    fixture
+        .fetcher
+        .stub(&source.url, fetched("<html>not a clash config</html>"));
+
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::NoData);
+
+    let stored = block_on(fixture.snapshots.find_by_source(&source_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.body(), SNAPSHOT_A.as_bytes());
+    assert!(fixture.snapshots.last_error(&source_id).is_some());
 }

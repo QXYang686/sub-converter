@@ -9,6 +9,8 @@ mod get_source;
 mod list_publications;
 mod list_sources;
 mod ports;
+mod refresh_source;
+mod serve_publication;
 mod set_publication_sources;
 mod update_publication;
 mod update_source;
@@ -29,7 +31,14 @@ pub use get_publication::{GetPublicationCommand, GetPublicationHandler};
 pub use get_source::{GetSourceCommand, GetSourceHandler};
 pub use list_publications::ListPublicationsHandler;
 pub use list_sources::ListSourcesHandler;
-pub use ports::{Clock, PortError, SecretGenerator};
+pub use ports::{
+    BackgroundTask, BackgroundTasks, Clock, FetchError, FetchOutcome, FetchValidators,
+    FetchedDocument, Fetcher, PortError, SecretGenerator, SubscriptionFormat,
+};
+pub use refresh_source::{RefreshSourceHandler, RefreshStatus, REFRESH_LEASE_SECONDS};
+pub use serve_publication::{
+    GeneratedSubscription, ServePublicationCommand, ServePublicationHandler,
+};
 pub use set_publication_sources::{SetPublicationSourcesCommand, SetPublicationSourcesHandler};
 pub use update_publication::{UpdatePublicationCommand, UpdatePublicationHandler};
 pub use update_source::{UpdateSourceCommand, UpdateSourceHandler};
