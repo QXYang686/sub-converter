@@ -1,6 +1,9 @@
 pub mod http;
 
 #[cfg(target_arch = "wasm32")]
+mod telemetry;
+
+#[cfg(target_arch = "wasm32")]
 mod worker_entry;
 
 #[cfg(test)]

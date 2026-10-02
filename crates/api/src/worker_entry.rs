@@ -17,6 +17,7 @@ use subscription::infrastructure::security::{
 use user::infrastructure::persistence::D1UserRepository;
 
 use crate::http::{router, AppState};
+use crate::telemetry;
 
 const DEFAULT_RP_ID: &str = "localhost";
 const DEFAULT_ORIGINS: &str = "http://localhost:8080";
@@ -35,6 +36,7 @@ async fn fetch(
     env: Env,
     _ctx: Context,
 ) -> Result<axum::http::Response<axum::body::Body>> {
+    telemetry::init(config_value(&env, "LOG_LEVEL"));
     let jwt_secret = env.secret("JWT_SECRET")?.to_string();
     let rp_id = config_value(&env, "WEBAUTHN_RP_ID").unwrap_or_else(|| DEFAULT_RP_ID.to_string());
     let origins =
