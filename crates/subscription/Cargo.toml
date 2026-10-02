@@ -1,0 +1,23 @@
+[package]
+name = "sub-converter-subscription"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "subscription"
+
+[dependencies]
+sub-converter-user = { path = "../user" }
+async-trait = "0.1"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "js"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+worker = { version = "0.8", features = ["d1"] }
+
+[dev-dependencies]
+futures = "0.3"

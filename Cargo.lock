@@ -1876,6 +1876,7 @@ dependencies = [
  "axum",
  "sub-converter-auth",
  "sub-converter-contract",
+ "sub-converter-subscription",
  "sub-converter-user",
  "tower-service",
  "worker",
@@ -1912,6 +1913,23 @@ name = "sub-converter-contract"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "sub-converter-subscription"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures",
+ "js-sys",
+ "serde",
+ "sub-converter-user",
+ "thiserror 2.0.21",
+ "uuid",
+ "wasm-bindgen",
+ "worker",
 ]
 
 [[package]]
@@ -1941,6 +1959,7 @@ dependencies = [
  "sub-converter-contract",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
