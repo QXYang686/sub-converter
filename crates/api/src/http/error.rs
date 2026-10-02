@@ -11,6 +11,7 @@ pub enum ApiError {
     Validation(String),
     Conflict(String),
     Unauthorized(String),
+    Forbidden(String),
     Internal(String),
 }
 
@@ -27,6 +28,9 @@ impl ApiError {
             }
             ApiError::Unauthorized(message) => {
                 (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", message.clone())
+            }
+            ApiError::Forbidden(message) => {
+                (StatusCode::FORBIDDEN, "FORBIDDEN", message.clone())
             }
             ApiError::Internal(message) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

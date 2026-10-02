@@ -52,28 +52,35 @@ cd crates/web && trunk build            # 产物在 crates/web/dist
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/auth/register` | 注册，返回 201 |
-| POST | `/api/auth/login` | 登录，返回 access + refresh token |
-| POST | `/api/auth/refresh` | 轮换 refresh token |
-| POST | `/api/auth/logout` | 吊销 refresh token（幂等），返回 204 |
+| POST | `/api/auth/login` | 登录，返回 access token 并下发 refresh cookie |
+| POST | `/api/auth/refresh` | 凭 cookie 轮换 refresh token，无请求体 |
+| POST | `/api/auth/logout` | 吊销并清除 cookie（幂等），返回 204 |
 | GET | `/api/users/me` | 需 `Authorization: Bearer <accessToken>` |
 
-错误统一为 `{"error":{"code","message"}}`；422 校验失败、409 用户名已存在、401 凭证/令牌无效。
+refresh token 通过 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie 传递，JS 不可读；refresh/logout 需带 `X-Requested-With: XMLHttpRequest`。
+
+错误统一为 `{"error":{"code","message"}}`；422 校验失败、409 用户名已存在、401 凭证/令牌无效、403 CSRF 校验失败。
 
 ```bash
 BASE=http://127.0.0.1:8787
-curl -X POST $BASE/api/auth/register -H 'Content-Type: application/json' \
+JAR=$(mktemp)
+
+curl -s -X POST $BASE/api/auth/register -H 'Content-Type: application/json' \
   -d '{"username":"alice","password":"password123"}'
 
-TOKENS=$(curl -s -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"password123"}')
-ACCESS=$(echo "$TOKENS" | jq -r .accessToken)
-REFRESH=$(echo "$TOKENS" | jq -r .refreshToken)
+ACCESS=$(curl -s -c "$JAR" -X POST $BASE/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -d '{"username":"alice","password":"password123"}' | jq -r .accessToken)
 
-curl $BASE/api/users/me -H "Authorization: Bearer $ACCESS"
-curl -X POST $BASE/api/auth/refresh -H 'Content-Type: application/json' \
-  -d "{\"refreshToken\":\"$REFRESH\"}"
-curl -X POST $BASE/api/auth/logout -H 'Content-Type: application/json' \
-  -d "{\"refreshToken\":\"$REFRESH\"}"
+curl -s $BASE/api/users/me -H "Authorization: Bearer $ACCESS"
+
+# cookie 自动携带，刷新会轮换并覆盖本地 cookie
+curl -s -b "$JAR" -c "$JAR" -X POST $BASE/api/auth/refresh \
+  -H 'X-Requested-With: XMLHttpRequest'
+
+curl -s -b "$JAR" -X POST $BASE/api/auth/logout \
+  -H 'X-Requested-With: XMLHttpRequest'
 ```
 
 ## 部署

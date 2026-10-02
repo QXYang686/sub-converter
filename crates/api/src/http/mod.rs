@@ -1,6 +1,7 @@
 mod dto;
 mod error;
 mod handlers;
+mod session;
 mod state;
 
 pub use state::AppState;

@@ -1,20 +1,21 @@
 use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 
+use contract::auth::{LoginRequest, RegisterRequest};
+use contract::user::UserResponse;
+
+use user::application::config::REFRESH_TOKEN_TTL_SECONDS;
 use user::application::{
-    GetCurrentUserHandler, LoginCommand, LoginHandler, LogoutCommand, LogoutHandler,
+    AppError, GetCurrentUserHandler, LoginCommand, LoginHandler, LogoutCommand, LogoutHandler,
     RefreshCommand, RefreshHandler, RegisterCommand, RegisterHandler,
 };
 
-use contract::auth::{
-    AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest,
-};
-use contract::user::UserResponse;
-
 use super::dto::{auth_response, refresh_auth_response, user_response};
 use super::error::ApiError;
+use super::session;
 use super::state::AppState;
 
 type JsonPayload<T> = Result<Json<T>, JsonRejection>;
@@ -54,8 +55,9 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     payload: JsonPayload<LoginRequest>,
-) -> Result<Json<AuthResponse>, ApiError> {
+) -> Result<Response, ApiError> {
     let Json(request) = payload.map_err(json_rejection)?;
     let handler = LoginHandler::new(
         state.users.clone(),
@@ -70,44 +72,75 @@ pub async fn login(
             password: request.password,
         })
         .await?;
-    Ok(Json(auth_response(result)))
+
+    let cookie = session::set_refresh_cookie(
+        &result.refresh_token,
+        REFRESH_TOKEN_TTL_SECONDS,
+        session::is_secure_request(&headers),
+    )?;
+    let mut response = Json(auth_response(result)).into_response();
+    response.headers_mut().append(header::SET_COOKIE, cookie);
+    Ok(response)
 }
 
 pub async fn refresh(
     State(state): State<AppState>,
-    payload: JsonPayload<RefreshRequest>,
-) -> Result<Json<AuthResponse>, ApiError> {
-    let Json(request) = payload.map_err(json_rejection)?;
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    session::require_xhr(&headers)?;
+    let secure = session::is_secure_request(&headers);
+    let refresh_token = session::refresh_token_from_headers(&headers)
+        .ok_or_else(|| ApiError::Unauthorized("missing refresh token".to_string()))?;
+
     let handler = RefreshHandler::new(
         state.users.clone(),
         state.token_service.clone(),
         state.refresh_tokens.clone(),
         state.clock.clone(),
     );
-    let result = handler
-        .handle(RefreshCommand {
-            refresh_token: request.refresh_token,
-        })
-        .await?;
-    Ok(Json(refresh_auth_response(result)))
+    match handler
+        .handle(RefreshCommand { refresh_token })
+        .await
+    {
+        Ok(result) => {
+            let cookie =
+                session::set_refresh_cookie(&result.refresh_token, REFRESH_TOKEN_TTL_SECONDS, secure)?;
+            let mut response = Json(refresh_auth_response(result)).into_response();
+            response.headers_mut().append(header::SET_COOKIE, cookie);
+            Ok(response)
+        }
+        Err(AppError::InvalidToken) => {
+            let mut response = ApiError::Unauthorized("invalid token".to_string()).into_response();
+            response
+                .headers_mut()
+                .append(header::SET_COOKIE, session::clear_refresh_cookie(secure));
+            Ok(response)
+        }
+        Err(err) => Err(err.into()),
+    }
 }
 
 pub async fn logout(
     State(state): State<AppState>,
-    payload: JsonPayload<LogoutRequest>,
-) -> Result<StatusCode, ApiError> {
-    let Json(request) = payload.map_err(json_rejection)?;
-    let handler = LogoutHandler::new(
-        state.token_service.clone(),
-        state.refresh_tokens.clone(),
-        state.clock.clone(),
-    );
-    handler
-        .handle(LogoutCommand {
-            refresh_token: request.refresh_token,
-        })
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    session::require_xhr(&headers)?;
+    let secure = session::is_secure_request(&headers);
+
+    if let Some(refresh_token) = session::refresh_token_from_headers(&headers) {
+        let handler = LogoutHandler::new(
+            state.token_service.clone(),
+            state.refresh_tokens.clone(),
+            state.clock.clone(),
+        );
+        handler.handle(LogoutCommand { refresh_token }).await?;
+    }
+
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response
+        .headers_mut()
+        .append(header::SET_COOKIE, session::clear_refresh_cookie(secure));
+    Ok(response)
 }
 
 pub async fn me(
