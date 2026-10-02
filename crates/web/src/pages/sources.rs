@@ -204,56 +204,126 @@ pub fn SourcesPage() -> impl IntoView {
                                                     </div>
                                                 }
                                                     .into_any()
-                                            } else {
-                                                let toggle_source = source.clone();
-                                                let edit_source = source.clone();
-                                                let delete_id = id.clone();
-                                                let enabled = source.enabled;
-                                                view! {
-                                                    <div class="flex items-center justify-between gap-3">
-                                                        <div class="min-w-0">
-                                                            <p class="truncate text-sm">
-                                                                {source.name.clone()}
-                                                                <Show when=move || !enabled>
-                                                                    <span class="ml-2 text-xs text-amber-300">
-                                                                        "已停用"
-                                                                    </span>
-                                                                </Show>
-                                                            </p>
-                                                            <p class="truncate text-xs text-slate-500">
-                                                                {source.url.clone()}
-                                                            </p>
-                                                        </div>
-                                                        <div class="flex shrink-0 items-center gap-3 text-sm">
-                                                            <button
-                                                                type="button"
-                                                                disabled=move || busy.get()
-                                                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
-                                                                on:click=move |_| on_toggle(toggle_source.clone())
-                                                            >
-                                                                {if enabled { "停用" } else { "启用" }}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled=move || busy.get()
-                                                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
-                                                                on:click=move |_| on_edit(edit_source.clone())
-                                                            >
-                                                                "编辑"
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled=move || busy.get()
-                                                                class="text-red-300 transition hover:text-red-200 disabled:opacity-50"
-                                                                on:click=move |_| on_delete(delete_id.clone())
-                                                            >
-                                                                "删除"
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                }
-                                                    .into_any()
-                                            };
+            } else {
+                let toggle_source = source.clone();
+                let edit_source = source.clone();
+                let delete_id = id.clone();
+                let enabled = source.enabled;
+                let snapshot = source.snapshot.clone();
+                let traffic = snapshot.as_ref().and_then(|snap| {
+                    let total = snap.total.filter(|total| *total > 0)?;
+                    let used = snap
+                        .upload
+                        .unwrap_or(0)
+                        .saturating_add(snap.download.unwrap_or(0));
+                    let percent =
+                        ((used as f64 / total as f64) * 100.0).clamp(0.0, 100.0) as u32;
+                    Some((format!("已用 {} / {}", format_bytes(used), format_bytes(total)), percent))
+                });
+                let nodes = snapshot.as_ref().map(|snap| {
+                    let protocols = snap
+                        .protocol_counts
+                        .iter()
+                        .map(|entry| format!("{} {}", entry.protocol, entry.count))
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    let mut line = format!(
+                        "节点 {} · 分组 {} · 规则 {}",
+                        snap.proxy_count, snap.group_count, snap.rule_count
+                    );
+                    if !protocols.is_empty() {
+                        line.push_str(&format!("（{protocols}）"));
+                    }
+                    line
+                });
+                let expire = snapshot
+                    .as_ref()
+                    .and_then(|snap| snap.expire.filter(|expire| *expire > 0))
+                    .map(|expire| format!("到期 {}", format_expire(expire)));
+                let provider = snapshot
+                    .as_ref()
+                    .and_then(|snap| snap.provider_name.clone())
+                    .map(|name| format!("机场 {name}"));
+                let last_error = snapshot.as_ref().and_then(|snap| snap.last_error.clone());
+                let fetched = snapshot.is_some();
+                view! {
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="truncate text-sm">
+                                {source.name.clone()}
+                                <Show when=move || !enabled>
+                                    <span class="ml-2 text-xs text-amber-300">
+                                        "已停用"
+                                    </span>
+                                </Show>
+                            </p>
+                            <p class="truncate text-xs text-slate-500">
+                                {source.url.clone()}
+                            </p>
+                            <Show when=move || !fetched>
+                                <p class="mt-1 text-xs text-slate-500">"尚无抓取数据"</p>
+                            </Show>
+                            {traffic
+                                .map(|(label, percent)| {
+                                    view! {
+                                        <div class="mt-1 w-48">
+                                            <div class="h-1.5 overflow-hidden rounded bg-slate-800">
+                                                <div
+                                                    class="h-full rounded bg-sky-500"
+                                                    style=format!("width:{percent}%")
+                                                ></div>
+                                            </div>
+                                            <p class="mt-0.5 text-xs text-slate-400">{label}</p>
+                                        </div>
+                                    }
+                                })}
+                            {nodes
+                                .map(|line| {
+                                    view! { <p class="mt-1 text-xs text-slate-400">{line}</p> }
+                                })}
+                            <div class="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                                {expire.map(|line| view! { <span>{line}</span> })}
+                                {provider.map(|name| view! { <span>{name}</span> })}
+                            </div>
+                            {last_error
+                                .map(|message| {
+                                    view! {
+                                        <p class="mt-1 truncate text-xs text-red-300">
+                                            {message}
+                                        </p>
+                                    }
+                                })}
+                        </div>
+                        <div class="flex shrink-0 items-center gap-3 text-sm">
+                            <button
+                                type="button"
+                                disabled=move || busy.get()
+                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
+                                on:click=move |_| on_toggle(toggle_source.clone())
+                            >
+                                {if enabled { "停用" } else { "启用" }}
+                            </button>
+                            <button
+                                type="button"
+                                disabled=move || busy.get()
+                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
+                                on:click=move |_| on_edit(edit_source.clone())
+                            >
+                                "编辑"
+                            </button>
+                            <button
+                                type="button"
+                                disabled=move || busy.get()
+                                class="text-red-300 transition hover:text-red-200 disabled:opacity-50"
+                                on:click=move |_| on_delete(delete_id.clone())
+                            >
+                                "删除"
+                            </button>
+                        </div>
+                    </div>
+                }
+                    .into_any()
+            };
                                             view! {
                                                 <li class="rounded-lg border border-slate-800 px-3 py-2">
                                                     {row}
@@ -270,4 +340,31 @@ pub fn SourcesPage() -> impl IntoView {
             </div>
         </RequireAuth>
     }
+}
+
+fn format_bytes(value: i64) -> String {
+    const UNITS: [(&str, f64); 4] = [
+        ("TB", 1024.0 * 1024.0 * 1024.0 * 1024.0),
+        ("GB", 1024.0 * 1024.0 * 1024.0),
+        ("MB", 1024.0 * 1024.0),
+        ("KB", 1024.0),
+    ];
+    let value = value.max(0) as f64;
+    for (unit, scale) in UNITS {
+        if value >= scale {
+            return format!("{:.1} {}", value / scale, unit);
+        }
+    }
+    format!("{value:.0} B")
+}
+
+fn format_expire(expire: i64) -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(expire as f64 * 1000.0));
+        if let Some(iso) = date.to_iso_string().as_string() {
+            return iso.chars().take(10).collect();
+        }
+    }
+    expire.to_string()
 }
