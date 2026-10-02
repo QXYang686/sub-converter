@@ -1,0 +1,2 @@
+pub const ACCESS_TOKEN_TTL_SECONDS: i64 = 60 * 15;
+pub const REFRESH_TOKEN_TTL_SECONDS: i64 = 60 * 60 * 24 * 30;
