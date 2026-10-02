@@ -1,0 +1,9 @@
+{
+  // 本项目的 worker 相关代码用 `#[cfg(target_arch = "wasm32")]` 门控
+  //（crates/api 的 worker 入口、crates/auth 与 crates/user 的 infrastructure）。
+  // rust-analyzer 默认按宿主 target 分析，这些代码会被判为未启用而不高亮。
+  // 把分析目标切到 wasm32，即可获得完整语义高亮、跳转和补全。
+  // 如需切回原生分析：删掉下面这行，或改成宿主 target（如 aarch64-unknown-linux-gnu）。
+  "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+  "rust-analyzer.check.targets": ["wasm32-unknown-unknown"]
+}
