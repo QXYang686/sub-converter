@@ -80,6 +80,19 @@ fn parse_user_id(view: &UserView) -> Result<UserId, ApiError> {
     UserId::parse(&view.id).map_err(|_| ApiError::Unauthorized("invalid subject".to_string()))
 }
 
+fn spawn_source_refresh(state: &AppState, source_id: &str, url: &str) {
+    let (Ok(source_id), Ok(url)) = (SourceId::parse(source_id), SourceUrl::new(url)) else {
+        tracing::warn!("skipping source refresh for invalid source reference");
+        return;
+    };
+    RefreshSourceHandler::new(
+        state.fetcher.clone(),
+        state.snapshots.clone(),
+        state.subscription_clock.clone(),
+    )
+    .spawn(state.background.as_ref(), source_id, url);
+}
+
 pub async fn register(
     State(state): State<AppState>,
     payload: JsonPayload<RegisterRequest>,
@@ -376,6 +389,9 @@ pub async fn create_source(
             enabled: request.enabled,
         })
         .await?;
+    if source.enabled {
+        spawn_source_refresh(&state, &source.id, &source.url);
+    }
     Ok((StatusCode::CREATED, Json(source_response(source))))
 }
 
@@ -407,6 +423,16 @@ pub async fn update_source(
     let user_id = parse_user_id(&user)?;
     let Json(request) = payload.map_err(json_rejection)?;
 
+    let refresh_target = SourceId::parse(&id).ok();
+    let previous = match &refresh_target {
+        Some(source_id) => state
+            .sources
+            .find_by_id(&user_id, source_id)
+            .await
+            .map_err(|err| ApiError::Internal(err.to_string()))?,
+        None => None,
+    };
+
     let handler = UpdateSourceHandler::new(state.sources.clone(), state.subscription_clock.clone());
     let source = handler
         .handle(UpdateSourceCommand {
@@ -417,6 +443,23 @@ pub async fn update_source(
             enabled: request.enabled,
         })
         .await?;
+
+    let url_changed = previous
+        .as_ref()
+        .is_some_and(|old| old.url().value() != source.url);
+    let reenabled = previous
+        .as_ref()
+        .is_some_and(|old| !old.enabled() && source.enabled);
+    if url_changed {
+        if let Some(source_id) = &refresh_target {
+            if let Err(err) = state.snapshots.clear(source_id).await {
+                tracing::warn!(error = %err, "failed to clear source snapshot");
+            }
+        }
+    }
+    if source.enabled && (url_changed || reenabled) {
+        spawn_source_refresh(&state, &source.id, &source.url);
+    }
     Ok(Json(source_response(source)))
 }
 
