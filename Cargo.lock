@@ -1584,11 +1584,13 @@ name = "sub-converter-web"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "futures",
+ "gloo-net",
  "leptos",
+ "send_wrapper",
+ "serde",
+ "serde_json",
  "sub-converter-contract",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]
