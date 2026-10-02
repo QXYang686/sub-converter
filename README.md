@@ -17,7 +17,7 @@ crates/
 ## 技术要点
 
 - 用户 ID：UUID v4，用户名不区分大小写唯一
-- 密码：PBKDF2-HMAC-SHA256（WebCrypto，600k 迭代，原生执行不计 Worker CPU），PHC 格式存储
+- 密码：PBKDF2-HMAC-SHA256（WebCrypto，100k 迭代，Cloudflare 平台上限；原生执行不计 Worker CPU），PHC 格式存储
 - 令牌：15 分钟 JWT HS256 + 30 天不透明 refresh token（D1 只存 SHA-256 哈希，刷新轮换，重放检测吊销整族）
 - 配置：仅 `JWT_SECRET` 走 secret，TTL/迭代次数是代码常量（`src/application/config.rs`）
 

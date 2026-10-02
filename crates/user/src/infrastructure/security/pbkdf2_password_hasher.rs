@@ -11,7 +11,7 @@ use crate::domain::PasswordHash;
 
 use super::random::random_bytes;
 
-pub const PBKDF2_ITERATIONS: u32 = 600_000;
+pub const PBKDF2_ITERATIONS: u32 = 100_000;
 const PBKDF2_ALGORITHM: &str = "pbkdf2-sha256";
 const SALT_LENGTH: usize = 16;
 const KEY_LENGTH: usize = 32;
