@@ -92,3 +92,14 @@ npx wrangler secret put JWT_SECRET --env production
 npx wrangler d1 migrations apply sub-converter-db-prod --remote --env production
 npx wrangler deploy --env production
 ```
+
+## GitHub Actions
+
+推送到 `main` 自动执行测试、应用 D1 迁移并部署到生产。在仓库 Settings → Secrets and variables → Actions 添加：
+
+| Secret | 说明 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | 建议用 "Edit Cloudflare Workers" 模板，并额外授予 D1 Edit 权限 |
+| `CLOUDFLARE_ACCOUNT_ID` | `npx wrangler whoami` 可查 |
+
+未配置 `CLOUDFLARE_API_TOKEN` 时工作流会跳过部署（warning），不会失败。
