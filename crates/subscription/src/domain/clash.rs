@@ -3,85 +3,40 @@ use std::collections::HashSet;
 use serde_yaml::{Mapping, Value};
 use thiserror::Error;
 
+use super::yaml_json::yaml_to_json;
+
 pub const PROXY_GROUP_NAME: &str = "PROXY";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ProxyProtocol {
-    Vmess,
-    AnyTls,
-    Hysteria2,
-}
-
-impl ProxyProtocol {
-    pub fn from_type(raw: &str) -> Option<Self> {
-        match raw {
-            "vmess" => Some(Self::Vmess),
-            "anytls" => Some(Self::AnyTls),
-            "hysteria2" => Some(Self::Hysteria2),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Vmess => "vmess",
-            Self::AnyTls => "anytls",
-            Self::Hysteria2 => "hysteria2",
-        }
-    }
-
-    fn credential_key(&self) -> &'static str {
-        match self {
-            Self::Vmess => "uuid",
-            Self::AnyTls | Self::Hysteria2 => "password",
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClashProxy {
-    protocol: ProxyProtocol,
+    protocol: String,
     identity: String,
     value: Value,
 }
 
 impl ClashProxy {
-    fn from_value(value: &Value) -> Option<Self> {
+    fn from_value(value: &Value, index: usize) -> Option<Self> {
         let mapping = value.as_mapping()?;
         let protocol = mapping
             .get("type")?
             .as_str()
-            .and_then(ProxyProtocol::from_type)?;
-        let server = mapping
-            .get("server")?
-            .as_str()
             .map(str::trim)
-            .filter(|server| !server.is_empty())?;
-        let port = match mapping.get("port")? {
-            Value::Number(number) => number.as_u64().filter(|port| (1..=65535).contains(port))?,
-            _ => return None,
-        };
-        let credential = mapping
-            .get(protocol.credential_key())?
-            .as_str()
-            .filter(|credential| !credential.is_empty())?;
-        let name = mapping
-            .get("name")?
-            .as_str()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())?;
-        let _ = name;
+            .filter(|protocol| !protocol.is_empty())?
+            .to_string();
 
-        let identity = format!("{}|{}|{}|{}", protocol.as_str(), server, port, credential);
+        let mut value = value.clone();
+        ensure_name(&mut value, &protocol, index);
+        let identity = identity_for(&protocol, &value);
+
         Some(Self {
             protocol,
             identity,
-            value: value.clone(),
+            value,
         })
     }
 
-    pub fn protocol(&self) -> ProxyProtocol {
-        self.protocol
+    pub fn protocol(&self) -> &str {
+        &self.protocol
     }
 
     pub fn identity(&self) -> &str {
@@ -95,6 +50,47 @@ impl ClashProxy {
     pub fn name(&self) -> Option<&str> {
         self.value.as_mapping()?.get("name")?.as_str()
     }
+}
+
+fn ensure_name(value: &mut Value, protocol: &str, index: usize) {
+    let Some(mapping) = value.as_mapping_mut() else {
+        return;
+    };
+    let has_name = mapping
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty());
+    if has_name {
+        return;
+    }
+
+    let server = mapping
+        .get("server")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let port = mapping.get("port").and_then(Value::as_u64);
+    let fallback = match (server.is_empty(), port) {
+        (false, Some(port)) => format!("{server}:{port}"),
+        (false, None) => server.to_string(),
+        _ => format!("{protocol} {}", index + 1),
+    };
+    mapping.insert(Value::String("name".to_string()), Value::String(fallback));
+}
+
+fn identity_for(protocol: &str, value: &Value) -> String {
+    let Some(mapping) = value.as_mapping() else {
+        return protocol.to_string();
+    };
+    let mut canonical = Mapping::new();
+    for (key, value) in mapping {
+        if key.as_str() == Some("name") {
+            continue;
+        }
+        canonical.insert(key.clone(), value.clone());
+    }
+    let serialized =
+        serde_json::to_string(&yaml_to_json(&Value::Mapping(canonical))).unwrap_or_default();
+    format!("{protocol}|{serialized}")
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -125,22 +121,37 @@ pub enum ClashError {
     MissingProxies,
 }
 
-pub fn parse(body: &str) -> Result<ParsedClash, ClashError> {
-    let document: Value = serde_yaml::from_str(body).map_err(|_| ClashError::InvalidYaml)?;
-    let mapping = document.as_mapping().ok_or(ClashError::InvalidYaml)?;
-    let entries = mapping
-        .get("proxies")
-        .and_then(Value::as_sequence)
-        .ok_or(ClashError::MissingProxies)?;
+pub fn document(body: &str) -> Result<Value, ClashError> {
+    serde_yaml::from_str(body).map_err(|_| ClashError::InvalidYaml)
+}
 
+pub fn parse_value(document: &Value) -> ParsedClash {
     let mut parsed = ParsedClash::default();
-    for entry in entries {
-        match ClashProxy::from_value(entry) {
+    let Some(entries) = document
+        .as_mapping()
+        .and_then(|mapping| mapping.get("proxies"))
+        .and_then(Value::as_sequence)
+    else {
+        return parsed;
+    };
+
+    for (index, entry) in entries.iter().enumerate() {
+        match ClashProxy::from_value(entry, index) {
             Some(proxy) => parsed.proxies.push(proxy),
             None => parsed.skipped += 1,
         }
     }
-    Ok(parsed)
+    parsed
+}
+
+pub fn parse(body: &str) -> Result<ParsedClash, ClashError> {
+    let document = document(body)?;
+    let mapping = document.as_mapping().ok_or(ClashError::InvalidYaml)?;
+    mapping
+        .get("proxies")
+        .and_then(Value::as_sequence)
+        .ok_or(ClashError::MissingProxies)?;
+    Ok(parse_value(&document))
 }
 
 pub fn merge<'a, I>(sources: I) -> Vec<Value>
@@ -255,14 +266,13 @@ proxies:
     password: anytls-secret
     sni: jp1.example.com
     skip-cert-verify: true
-  - name: 不支持的协议
-    type: trojan
-    server: trojan.example.com
-    port: 443
-    password: trojan-secret
-  - name: 畸形节点
-    type: vmess
-    server: broken.example.com
+  - name: 被保留的 ss
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: ss-secret
+  - not-a-mapping-entry
 proxy-groups:
   - name: PROXY
     type: select
@@ -278,7 +288,9 @@ proxies:
     server: hk1.example.com
     port: 443
     uuid: 11111111-1111-1111-1111-111111111111
+    alterId: 0
     cipher: auto
+    tls: true
   - name: 香港 01
     type: hysteria2
     server: hy2.example.com
@@ -298,12 +310,13 @@ proxies:
     }
 
     #[test]
-    fn parse_keeps_supported_protocols_and_skips_rest() {
+    fn parse_keeps_all_protocols_and_skips_invalid_entries() {
         let result = parsed(SOURCE_A);
-        assert_eq!(result.proxies().len(), 2);
-        assert_eq!(result.skipped(), 2);
-        assert_eq!(result.proxies()[0].protocol(), ProxyProtocol::Vmess);
-        assert_eq!(result.proxies()[1].protocol(), ProxyProtocol::AnyTls);
+        assert_eq!(result.proxies().len(), 3);
+        assert_eq!(result.skipped(), 1);
+        assert_eq!(result.proxies()[0].protocol(), "vmess");
+        assert_eq!(result.proxies()[1].protocol(), "anytls");
+        assert_eq!(result.proxies()[2].protocol(), "ss");
         assert_eq!(result.proxies()[0].name(), Some("香港 01"));
     }
 
@@ -312,6 +325,53 @@ proxies:
         assert_eq!(parse("not: [valid"), Err(ClashError::InvalidYaml));
         assert_eq!(parse("mode: rule"), Err(ClashError::MissingProxies));
         assert_eq!(parse("- just\n- a\n- list"), Err(ClashError::InvalidYaml));
+    }
+
+    #[test]
+    fn parse_synthesizes_missing_names() {
+        let result = parsed(
+            r#"
+proxies:
+  - type: trojan
+    server: trojan.example.com
+    port: 443
+    password: secret
+  - type: ss
+"#,
+        );
+        assert_eq!(result.proxies().len(), 2);
+        assert_eq!(result.proxies()[0].name(), Some("trojan.example.com:443"));
+        assert_eq!(result.proxies()[1].name(), Some("ss 2"));
+    }
+
+    #[test]
+    fn identity_ignores_names_but_distinguishes_fields() {
+        let first = ClashProxy::from_value(
+            &serde_yaml::from_str(
+                "type: ss\nname: A\nserver: s.example.com\nport: 8388\ncipher: aes-128-gcm\npassword: x",
+            )
+            .unwrap(),
+            0,
+        )
+        .unwrap();
+        let second = ClashProxy::from_value(
+            &serde_yaml::from_str(
+                "type: ss\nname: B\nserver: s.example.com\nport: 8388\ncipher: aes-128-gcm\npassword: x",
+            )
+            .unwrap(),
+            0,
+        )
+        .unwrap();
+        let third = ClashProxy::from_value(
+            &serde_yaml::from_str(
+                "type: ss\nname: C\nserver: s.example.com\nport: 8388\ncipher: aes-128-gcm\npassword: y",
+            )
+            .unwrap(),
+            0,
+        )
+        .unwrap();
+        assert_eq!(first.identity(), second.identity());
+        assert_ne!(first.identity(), third.identity());
     }
 
     #[test]
@@ -334,8 +394,14 @@ proxies:
 
         assert_eq!(
             names,
-            vec!["香港 01", "日本 01", "香港 01 2", "新加坡 01"],
-            "duplicate vmess across sources must be dropped, name conflict suffixed"
+            vec![
+                "香港 01",
+                "日本 01",
+                "被保留的 ss",
+                "香港 01 2",
+                "新加坡 01"
+            ],
+            "duplicates across sources must be dropped and name conflicts suffixed"
         );
     }
 
@@ -346,7 +412,7 @@ proxies:
         let merged = merge([&source_b, &source_a]);
         let first = merged[0].as_mapping().unwrap().get("name").unwrap();
         assert_eq!(first.as_str(), Some("香港 01"));
-        assert_eq!(merged.len(), 4);
+        assert_eq!(merged.len(), 5);
     }
 
     #[test]
@@ -358,7 +424,7 @@ proxies:
         let root = round_tripped.as_mapping().unwrap();
 
         assert_eq!(root.get("mode").unwrap().as_str(), Some("rule"));
-        assert_eq!(root.get("proxies").unwrap().as_sequence().unwrap().len(), 2);
+        assert_eq!(root.get("proxies").unwrap().as_sequence().unwrap().len(), 3);
         let group = root.get("proxy-groups").unwrap().as_sequence().unwrap()[0]
             .as_mapping()
             .unwrap()
@@ -371,7 +437,10 @@ proxies:
             .iter()
             .map(|value| value.as_str().unwrap())
             .collect();
-        assert_eq!(group_proxies, vec!["香港 01", "日本 01", "DIRECT"]);
+        assert_eq!(
+            group_proxies,
+            vec!["香港 01", "日本 01", "被保留的 ss", "DIRECT"]
+        );
         let rules: Vec<&str> = root
             .get("rules")
             .unwrap()

@@ -5,9 +5,11 @@ mod repository;
 mod snapshot;
 mod source;
 mod value_object;
+mod yaml_json;
 
 pub use clash::{
-    merge, parse, render, ClashError, ClashProxy, ParsedClash, ProxyProtocol, PROXY_GROUP_NAME,
+    document, merge, parse, parse_value, render, ClashError, ClashProxy, ParsedClash,
+    PROXY_GROUP_NAME,
 };
 pub use error::{DomainError, RepositoryError};
 pub use publication::{Publication, PublicationSource};

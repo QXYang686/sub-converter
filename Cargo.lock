@@ -1981,6 +1981,7 @@ dependencies = [
  "js-sys",
  "serde",
  "serde_bytes",
+ "serde_json",
  "serde_yaml",
  "sub-converter-user",
  "thiserror 2.0.21",
