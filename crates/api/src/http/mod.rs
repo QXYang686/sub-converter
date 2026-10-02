@@ -3,6 +3,7 @@ mod error;
 mod handlers;
 mod session;
 mod state;
+mod trace;
 
 pub use state::AppState;
 
@@ -58,5 +59,6 @@ pub fn router(state: AppState) -> Router {
             "/api/subscriptions/publications/{id}/sources",
             put(handlers::set_publication_sources),
         )
+        .layer(axum::middleware::from_fn(trace::trace_request))
         .with_state(state)
 }

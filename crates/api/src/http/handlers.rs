@@ -66,7 +66,9 @@ async fn current_user(state: &AppState, headers: &HeaderMap) -> Result<UserView,
         state.token_service.clone(),
         state.clock.clone(),
     );
-    handler.handle(token).await.map_err(Into::into)
+    let user = handler.handle(token).await.map_err(ApiError::from)?;
+    super::trace::record_user_id(&user.id);
+    Ok(user)
 }
 
 fn parse_user_id(view: &UserView) -> Result<UserId, ApiError> {
@@ -90,6 +92,7 @@ pub async fn register(
             password: request.password,
         })
         .await?;
+    super::trace::record_user_id(&user.id);
     Ok((StatusCode::CREATED, Json(user_response(user))))
 }
 
@@ -113,6 +116,7 @@ pub async fn login(
             password: request.password,
         })
         .await?;
+    super::trace::record_user_id(&result.user.id);
 
     let cookie = session::set_refresh_cookie(
         &result.refresh_token,
@@ -141,6 +145,7 @@ pub async fn refresh(
     );
     match handler.handle(RefreshCommand { refresh_token }).await {
         Ok(result) => {
+            super::trace::record_user_id(&result.user.id);
             let cookie = session::set_refresh_cookie(
                 &result.refresh_token,
                 REFRESH_TOKEN_TTL_SECONDS,
@@ -294,6 +299,7 @@ pub async fn passkey_login_finish(
             signature: request.signature,
         })
         .await?;
+    super::trace::record_user_id(&result.user.id);
 
     let cookie = session::set_refresh_cookie(
         &result.refresh_token,
