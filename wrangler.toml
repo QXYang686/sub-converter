@@ -3,7 +3,12 @@ main = "crates/api/build/index.js"
 compatibility_date = "2026-10-02"
 
 [build]
-command = "cargo install -q \"worker-build@^0.8\" && cd crates/api && worker-build --release"
+command = "cd crates/api && cargo install -q \"worker-build@^0.8\" && worker-build --release && cd ../web && trunk build --release"
+
+[assets]
+directory = "./crates/web/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
@@ -17,3 +22,7 @@ name = "sub-converter"
 binding = "DB"
 database_name = "sub-converter-db-prod"
 database_id = "00000000-0000-0000-0000-000000000000"
+
+[[env.production.routes]]
+pattern = "sub.yqxpro.com"
+custom_domain = true

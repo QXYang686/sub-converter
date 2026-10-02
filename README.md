@@ -36,6 +36,8 @@ cd crates/web
 trunk serve                             # http://127.0.0.1:8080，/api 代理到 8787
 ```
 
+> `wrangler dev` 会执行完整构建（worker-build + `trunk build --release`），仅调 API 时首次启动会慢一些。
+
 测试与检查：
 
 ```bash
@@ -76,7 +78,12 @@ curl -X POST $BASE/api/auth/logout -H 'Content-Type: application/json' \
 
 ## 部署
 
+Worker 名为 `sub-converter`，生产通过自定义域名 `sub.yqxpro.com` 访问（`yqxpro.com` 需在同一个 Cloudflare 账号）。前端产物作为静态资源托管：`/api/*` 走 Worker，其余路径 SPA 回退到 `index.html`。
+
+首次初始化：
+
 ```bash
+npx wrangler login
 npx wrangler d1 create sub-converter-db-dev
 npx wrangler d1 create sub-converter-db-prod
 # 将输出的 database_id 填入 wrangler.toml 对应 binding
@@ -85,5 +92,3 @@ npx wrangler secret put JWT_SECRET --env production
 npx wrangler d1 migrations apply sub-converter-db-prod --remote --env production
 npx wrangler deploy --env production
 ```
-
-> 前端骨架暂未接入 Worker 静态资源（`[assets]`），当前部署只包含 API；接入后再补 `run_worker_first`/SPA 回退配置。
