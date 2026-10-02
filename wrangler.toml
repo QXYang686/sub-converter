@@ -13,6 +13,15 @@ run_worker_first = ["/api/*"]
 [vars]
 WEBAUTHN_RP_ID = "localhost"
 WEBAUTHN_ORIGINS = "http://localhost:8080"
+LOG_LEVEL = "debug"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 [[d1_databases]]
 binding = "DB"
@@ -25,6 +34,15 @@ name = "sub-converter"
 [env.production.vars]
 WEBAUTHN_RP_ID = "yqxpro.com"
 WEBAUTHN_ORIGINS = "https://sub.yqxpro.com"
+LOG_LEVEL = "info"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -41,6 +59,15 @@ name = "sub-converter-staging"
 [env.staging.vars]
 WEBAUTHN_RP_ID = "sub-converter-staging.yqxpro.workers.dev"
 WEBAUTHN_ORIGINS = "https://sub-converter-staging.yqxpro.workers.dev"
+LOG_LEVEL = "info"
+
+[env.staging.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.staging.observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 [[env.staging.d1_databases]]
 binding = "DB"
