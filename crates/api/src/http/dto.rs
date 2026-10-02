@@ -1,6 +1,6 @@
+use auth::application::{LoginResult, RefreshResult, UserView};
 use contract::auth::AuthResponse;
 use contract::user::UserResponse;
-use user::application::{LoginResult, RefreshResult, UserView};
 
 pub fn user_response(view: UserView) -> UserResponse {
     UserResponse {

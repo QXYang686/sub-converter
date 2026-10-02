@@ -8,6 +8,7 @@ name = "api"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+sub-converter-auth = { path = "../auth" }
 sub-converter-contract = { path = "../contract" }
 sub-converter-user = { path = "../user" }
 axum = { version = "0.8", default-features = false, features = ["json"] }

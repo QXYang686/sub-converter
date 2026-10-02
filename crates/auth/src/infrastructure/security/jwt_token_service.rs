@@ -10,7 +10,7 @@ use crate::application::config::{ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SEC
 use crate::application::{
     AccessToken, IssuedRefreshToken, PortError, StoredRefreshToken, TokenService,
 };
-use crate::domain::UserId;
+use user::UserId;
 
 use super::random::random_bytes;
 

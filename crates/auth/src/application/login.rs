@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
-use crate::application::error::AppError;
-use crate::application::ports::{Clock, PasswordHasher, RefreshTokenRepository, TokenService};
-use crate::domain::{UserRepository, Username};
+use user::{UserRepository, Username};
 
-use super::UserView;
+use crate::domain::PasswordCredentialRepository;
+
+use super::dto::UserView;
+use super::error::AppError;
+use super::ports::{Clock, PasswordHasher, RefreshTokenRepository, TokenService};
 
 #[derive(Debug, Clone)]
 pub struct LoginCommand {
@@ -23,6 +25,7 @@ pub struct LoginResult {
 
 pub struct LoginHandler {
     users: Arc<dyn UserRepository>,
+    credentials: Arc<dyn PasswordCredentialRepository>,
     password_hasher: Arc<dyn PasswordHasher>,
     token_service: Arc<dyn TokenService>,
     refresh_tokens: Arc<dyn RefreshTokenRepository>,
@@ -30,8 +33,10 @@ pub struct LoginHandler {
 }
 
 impl LoginHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         users: Arc<dyn UserRepository>,
+        credentials: Arc<dyn PasswordCredentialRepository>,
         password_hasher: Arc<dyn PasswordHasher>,
         token_service: Arc<dyn TokenService>,
         refresh_tokens: Arc<dyn RefreshTokenRepository>,
@@ -39,6 +44,7 @@ impl LoginHandler {
     ) -> Self {
         Self {
             users,
+            credentials,
             password_hasher,
             token_service,
             refresh_tokens,
@@ -55,15 +61,23 @@ impl LoginHandler {
             .await?
             .ok_or(AppError::InvalidCredentials)?;
 
+        let credential = self
+            .credentials
+            .find_by_user_id(user.id())
+            .await?
+            .ok_or(AppError::InvalidCredentials)?;
+
         let password_matches = self
             .password_hasher
-            .verify(&command.password, user.password_hash())
+            .verify(&command.password, credential.password_hash())
             .await?;
         if !password_matches {
             return Err(AppError::InvalidCredentials);
         }
 
         let now = self.clock.now();
+        let _ = self.credentials.mark_used(credential.id(), now).await;
+
         let access = self.token_service.issue_access_token(user.id(), now).await?;
         let refresh = self.token_service.issue_refresh_token(user.id(), now).await?;
         self.refresh_tokens.save(&refresh.record).await?;

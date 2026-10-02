@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["crates/api", "crates/contract", "crates/user", "crates/web"]
-default-members = ["crates/api", "crates/contract", "crates/user"]
+members = ["crates/api", "crates/auth", "crates/contract", "crates/user", "crates/web"]
+default-members = ["crates/api", "crates/auth", "crates/contract", "crates/user"]

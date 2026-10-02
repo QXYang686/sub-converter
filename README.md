@@ -6,13 +6,14 @@ Cloudflare Workers API：Rust + worker-rs + axum + D1，DDD 分层用户系统�
 
 ```
 crates/
-├── user/        # 用户限界上下文：domain / application / infrastructure 模块分层
+├── user/        # 用户上下文：账号（User、Username）与仓储
+├── auth/        # 认证上下文：凭证（密码/Passkey）、JWT、refresh token、认证用例
 ├── contract/    # 前后端共享的 API 契约（serde DTO、输入约束常量）
 ├── api/         # 组合根：axum 路由、错误映射、worker 入口（cdylib）
 └── web/         # Leptos CSR 前端（骨架）
 ```
 
-依赖方向：contract ← api / web；user ← api；web 不依赖 user。
+依赖方向：user ← auth ← api；contract ← api / web；web 不依赖 user/auth。
 
 ## 技术要点
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::application::error::AppError;
 use crate::application::ports::{Clock, TokenService};
-use crate::domain::UserRepository;
+use user::UserRepository;
 
 use super::UserView;
 

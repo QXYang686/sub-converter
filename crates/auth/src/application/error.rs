@@ -1,16 +1,21 @@
 use thiserror::Error;
 
 use super::ports::PortError;
-use crate::domain::{DomainError, RepositoryError};
+use crate::domain::RepositoryError as CredentialRepositoryError;
+use user::RepositoryError;
 
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error(transparent)]
-    Domain(#[from] DomainError),
-    #[error(transparent)]
     Repository(#[from] RepositoryError),
     #[error(transparent)]
+    Credential(#[from] CredentialRepositoryError),
+    #[error(transparent)]
     Port(#[from] PortError),
+    #[error("invalid username")]
+    InvalidUsername,
+    #[error("invalid password")]
+    InvalidPassword,
     #[error("username already exists")]
     UsernameTaken,
     #[error("invalid credentials")]

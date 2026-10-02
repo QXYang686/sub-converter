@@ -4,11 +4,12 @@
 Cloudflare Workers API + Leptos CSR 前端：Rust workspace，DDD 用户系统。
 
 ## 结构
-- `crates/user`：用户限界上下文，内部按 domain/application/infrastructure 模块分层
+- `crates/user`：用户上下文，账号（User、Username）与仓储
+- `crates/auth`：认证上下文，凭证（密码/Passkey）、JWT、refresh token、认证用例
 - `crates/contract`：前后端共享的 API 契约（serde DTO、输入约束常量）
 - `crates/api`：组合根，axum 路由、错误映射与 worker 入口（cdylib）
 - `crates/web`：Leptos CSR 前端
-- 依赖方向：contract ← api/web；user ← api；web 不依赖 user
+- 依赖方向：user ← auth ← api；contract ← api/web；web 不依赖 user/auth
 
 ## 命令
 - 原生检查/测试（domain/application）：`cargo test`

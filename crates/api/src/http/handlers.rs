@@ -7,8 +7,8 @@ use axum::Json;
 use contract::auth::{LoginRequest, RegisterRequest};
 use contract::user::UserResponse;
 
-use user::application::config::REFRESH_TOKEN_TTL_SECONDS;
-use user::application::{
+use auth::application::config::REFRESH_TOKEN_TTL_SECONDS;
+use auth::application::{
     AppError, GetCurrentUserHandler, LoginCommand, LoginHandler, LogoutCommand, LogoutHandler,
     RefreshCommand, RefreshHandler, RegisterCommand, RegisterHandler,
 };
@@ -41,6 +41,7 @@ pub async fn register(
     let Json(request) = payload.map_err(json_rejection)?;
     let handler = RegisterHandler::new(
         state.users.clone(),
+        state.credentials.clone(),
         state.password_hasher.clone(),
         state.clock.clone(),
     );
@@ -61,6 +62,7 @@ pub async fn login(
     let Json(request) = payload.map_err(json_rejection)?;
     let handler = LoginHandler::new(
         state.users.clone(),
+        state.credentials.clone(),
         state.password_hasher.clone(),
         state.token_service.clone(),
         state.refresh_tokens.clone(),

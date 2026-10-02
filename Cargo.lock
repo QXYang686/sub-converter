@@ -1580,11 +1580,33 @@ name = "sub-converter-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "sub-converter-auth",
  "sub-converter-contract",
  "sub-converter-user",
  "tower-service",
  "worker",
  "worker-macros",
+]
+
+[[package]]
+name = "sub-converter-auth"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures",
+ "hmac",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sub-converter-user",
+ "subtle",
+ "thiserror 2.0.21",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "worker",
 ]
 
 [[package]]
@@ -1599,18 +1621,9 @@ name = "sub-converter-user"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "base64",
- "futures",
- "hmac",
- "js-sys",
  "serde",
- "serde_json",
- "sha2",
- "subtle",
  "thiserror 2.0.21",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
  "worker",
 ]
 

@@ -1,44 +1,30 @@
-use super::{PasswordHash, UserId, Username};
+use super::{UserId, Username};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct User {
     id: UserId,
     username: Username,
-    password_hash: PasswordHash,
     created_at: i64,
     updated_at: i64,
 }
 
 impl User {
-    pub fn register(id: UserId, username: Username, password_hash: PasswordHash, now: i64) -> Self {
+    pub fn register(id: UserId, username: Username, now: i64) -> Self {
         Self {
             id,
             username,
-            password_hash,
             created_at: now,
             updated_at: now,
         }
     }
 
-    pub fn restore(
-        id: UserId,
-        username: Username,
-        password_hash: PasswordHash,
-        created_at: i64,
-        updated_at: i64,
-    ) -> Self {
+    pub fn restore(id: UserId, username: Username, created_at: i64, updated_at: i64) -> Self {
         Self {
             id,
             username,
-            password_hash,
             created_at,
             updated_at,
         }
-    }
-
-    pub fn change_password(&mut self, password_hash: PasswordHash, now: i64) {
-        self.password_hash = password_hash;
-        self.updated_at = now;
     }
 
     pub fn id(&self) -> &UserId {
@@ -47,10 +33,6 @@ impl User {
 
     pub fn username(&self) -> &Username {
         &self.username
-    }
-
-    pub fn password_hash(&self) -> &PasswordHash {
-        &self.password_hash
     }
 
     pub fn created_at(&self) -> i64 {
@@ -67,12 +49,7 @@ mod tests {
     use super::*;
 
     fn sample_user(now: i64) -> User {
-        User::register(
-            UserId::new(),
-            Username::new("alice").unwrap(),
-            PasswordHash::new("$hash$").unwrap(),
-            now,
-        )
+        User::register(UserId::new(), Username::new("alice").unwrap(), now)
     }
 
     #[test]
@@ -83,14 +60,13 @@ mod tests {
     }
 
     #[test]
-    fn change_password_updates_hash_and_updated_at() {
-        let mut user = sample_user(1_700_000_000);
-        let new_hash = PasswordHash::new("$new-hash$").unwrap();
-
-        user.change_password(new_hash.clone(), 1_700_000_100);
-
-        assert_eq!(user.password_hash(), &new_hash);
-        assert_eq!(user.created_at(), 1_700_000_000);
-        assert_eq!(user.updated_at(), 1_700_000_100);
+    fn restore_keeps_state() {
+        let id = UserId::new();
+        let username = Username::new("alice").unwrap();
+        let user = User::restore(id.clone(), username.clone(), 100, 200);
+        assert_eq!(user.id(), &id);
+        assert_eq!(user.username(), &username);
+        assert_eq!(user.created_at(), 100);
+        assert_eq!(user.updated_at(), 200);
     }
 }

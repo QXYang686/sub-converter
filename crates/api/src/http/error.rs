@@ -3,8 +3,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use contract::auth::{ErrorBody, ErrorResponse};
 
-use user::application::{AppError, PortError};
-use user::domain::DomainError;
+use auth::application::{AppError, PortError};
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -70,23 +69,19 @@ impl IntoResponse for ApiError {
 impl From<AppError> for ApiError {
     fn from(err: AppError) -> Self {
         match err {
-            AppError::Domain(error) => {
-                let validation = error == DomainError::InvalidUsername
-                    || error == DomainError::InvalidPassword;
-                if validation {
-                    ApiError::Validation(error.to_string())
-                } else {
-                    ApiError::Internal(error.to_string())
-                }
+            AppError::InvalidUsername | AppError::InvalidPassword => {
+                ApiError::Validation(err.to_string())
             }
-            AppError::Repository(error) => ApiError::Internal(error.to_string()),
-            AppError::Port(error) => match error {
-                PortError::InvalidToken => ApiError::Unauthorized(error.to_string()),
-                PortError::Failure(message) => ApiError::Internal(message),
-            },
             AppError::UsernameTaken => ApiError::Conflict(err.to_string()),
-            AppError::InvalidCredentials => ApiError::Unauthorized(err.to_string()),
-            AppError::InvalidToken => ApiError::Unauthorized(err.to_string()),
+            AppError::InvalidCredentials | AppError::InvalidToken => {
+                ApiError::Unauthorized(err.to_string())
+            }
+            AppError::Port(PortError::InvalidToken) => {
+                ApiError::Unauthorized("invalid token".to_string())
+            }
+            AppError::Port(PortError::Failure(message)) => ApiError::Internal(message),
+            AppError::Repository(error) => ApiError::Internal(error.to_string()),
+            AppError::Credential(error) => ApiError::Internal(error.to_string()),
             AppError::Internal(message) => ApiError::Internal(message),
         }
     }

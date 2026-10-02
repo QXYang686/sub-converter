@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use futures::executor::block_on;
 use uuid::Uuid;
 
+use user::{RepositoryError, User, UserId, UserRepository, Username};
+
 use crate::application::config::{ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS};
 use crate::application::error::AppError;
 use crate::application::ports::{
@@ -13,7 +15,8 @@ use crate::application::ports::{
     StoredRefreshToken, TokenService,
 };
 use crate::domain::{
-    DomainError, PasswordHash, RepositoryError, User, UserId, UserRepository, Username,
+    CredentialId, PasswordCredential, PasswordCredentialRepository, PasswordHash,
+    RepositoryError as CredentialRepositoryError,
 };
 
 use super::{
@@ -51,6 +54,84 @@ impl UserRepository for InMemoryUserRepository {
             return Err(RepositoryError::UsernameConflict);
         }
         users.insert(user.username().value().to_string(), user.clone());
+        Ok(())
+    }
+
+    async fn delete(&self, id: &UserId) -> Result<(), RepositoryError> {
+        self.users
+            .lock()
+            .unwrap()
+            .retain(|_, user| user.id() != id);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct InMemoryCredentialRepository {
+    credentials: Mutex<HashMap<Uuid, PasswordCredential>>,
+}
+
+#[async_trait]
+impl PasswordCredentialRepository for InMemoryCredentialRepository {
+    async fn find_by_user_id(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<PasswordCredential>, CredentialRepositoryError> {
+        Ok(self
+            .credentials
+            .lock()
+            .unwrap()
+            .values()
+            .find(|credential| credential.user_id() == user_id)
+            .cloned())
+    }
+
+    async fn save(
+        &self,
+        credential: &PasswordCredential,
+    ) -> Result<(), CredentialRepositoryError> {
+        self.credentials
+            .lock()
+            .unwrap()
+            .insert(*credential.id().as_uuid(), credential.clone());
+        Ok(())
+    }
+
+    async fn mark_used(
+        &self,
+        id: &CredentialId,
+        now: i64,
+    ) -> Result<(), CredentialRepositoryError> {
+        if let Some(credential) = self.credentials.lock().unwrap().get_mut(id.as_uuid()) {
+            credential.mark_used(now);
+        }
+        Ok(())
+    }
+}
+
+struct FailingCredentialRepository;
+
+#[async_trait]
+impl PasswordCredentialRepository for FailingCredentialRepository {
+    async fn find_by_user_id(
+        &self,
+        _user_id: &UserId,
+    ) -> Result<Option<PasswordCredential>, CredentialRepositoryError> {
+        Ok(None)
+    }
+
+    async fn save(
+        &self,
+        _credential: &PasswordCredential,
+    ) -> Result<(), CredentialRepositoryError> {
+        Err(CredentialRepositoryError::Unavailable("boom".to_string()))
+    }
+
+    async fn mark_used(
+        &self,
+        _id: &CredentialId,
+        _now: i64,
+    ) -> Result<(), CredentialRepositoryError> {
         Ok(())
     }
 }
@@ -178,6 +259,7 @@ impl Clock for FakeClock {
 
 struct Fixture {
     users: Arc<InMemoryUserRepository>,
+    credentials: Arc<InMemoryCredentialRepository>,
     refresh_tokens: Arc<InMemoryRefreshTokenRepository>,
     clock: Arc<FakeClock>,
     register: RegisterHandler,
@@ -190,6 +272,7 @@ struct Fixture {
 impl Fixture {
     fn new(now: i64) -> Self {
         let users = Arc::new(InMemoryUserRepository::default());
+        let credentials = Arc::new(InMemoryCredentialRepository::default());
         let refresh_tokens = Arc::new(InMemoryRefreshTokenRepository::default());
         let clock = Arc::new(FakeClock::new(now));
         let hasher = Arc::new(FakePasswordHasher);
@@ -199,11 +282,18 @@ impl Fixture {
 
         Self {
             users: users.clone(),
+            credentials: credentials.clone(),
             refresh_tokens: refresh_tokens.clone(),
             clock: clock.clone(),
-            register: RegisterHandler::new(users.clone(), hasher.clone(), clock.clone()),
+            register: RegisterHandler::new(
+                users.clone(),
+                credentials.clone(),
+                hasher.clone(),
+                clock.clone(),
+            ),
             login: LoginHandler::new(
                 users.clone(),
+                credentials.clone(),
                 hasher,
                 tokens.clone(),
                 refresh_tokens.clone(),
@@ -242,7 +332,7 @@ impl Fixture {
 }
 
 #[test]
-fn register_creates_user_with_normalized_username() {
+fn register_creates_user_and_password_credential() {
     block_on(async {
         let fixture = Fixture::new(1_000);
 
@@ -257,8 +347,17 @@ fn register_creates_user_with_normalized_username() {
             .unwrap()
             .unwrap();
         assert_eq!(stored.id().to_string(), view.id);
-        assert_eq!(stored.password_hash().as_str(), "hashed:password123");
         assert_eq!(stored.created_at(), 1_000);
+
+        let credential = fixture
+            .credentials
+            .find_by_user_id(stored.id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(credential.user_id(), stored.id());
+        assert_eq!(credential.password_hash().as_str(), "hashed:password123");
+        assert_eq!(credential.created_at(), 1_000);
     });
 }
 
@@ -294,10 +393,7 @@ fn register_validates_username_and_password() {
             })
             .await
             .unwrap_err();
-        assert!(matches!(
-            invalid_username,
-            AppError::Domain(DomainError::InvalidUsername)
-        ));
+        assert!(matches!(invalid_username, AppError::InvalidUsername));
 
         let invalid_password = fixture
             .register
@@ -307,10 +403,35 @@ fn register_validates_username_and_password() {
             })
             .await
             .unwrap_err();
-        assert!(matches!(
-            invalid_password,
-            AppError::Domain(DomainError::InvalidPassword)
-        ));
+        assert!(matches!(invalid_password, AppError::InvalidPassword));
+    });
+}
+
+#[test]
+fn register_compensates_when_credential_storage_fails() {
+    block_on(async {
+        let users = Arc::new(InMemoryUserRepository::default());
+        let handler = RegisterHandler::new(
+            users.clone(),
+            Arc::new(FailingCredentialRepository),
+            Arc::new(FakePasswordHasher),
+            Arc::new(FakeClock::new(1_000)),
+        );
+
+        let error = handler
+            .handle(RegisterCommand {
+                username: "alice".to_string(),
+                password: "password123".to_string(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::Internal(_)));
+        assert!(users
+            .find_by_username(&Username::new("alice").unwrap())
+            .await
+            .unwrap()
+            .is_none());
     });
 }
 
@@ -333,6 +454,15 @@ fn login_returns_tokens_for_valid_credentials() {
             result.refresh_token_expires_at,
             1_000 + REFRESH_TOKEN_TTL_SECONDS
         );
+
+        let user_id = UserId::parse(&result.user.id).unwrap();
+        let credential = fixture
+            .credentials
+            .find_by_user_id(&user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(credential.last_used_at(), Some(1_000));
     });
 }
 
@@ -499,7 +629,11 @@ fn current_user_resolves_access_token() {
             .unwrap();
         assert_eq!(view, login.user);
 
-        let error = fixture.current_user.handle("access:not-a-uuid").await.unwrap_err();
+        let error = fixture
+            .current_user
+            .handle("access:not-a-uuid")
+            .await
+            .unwrap_err();
         assert!(matches!(error, AppError::InvalidToken));
     });
 }

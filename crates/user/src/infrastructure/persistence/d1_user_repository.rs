@@ -3,9 +3,9 @@ use serde::Deserialize;
 use worker::d1::{D1Database, D1Type};
 use worker::send::SendFuture;
 
-use crate::domain::{PasswordHash, RepositoryError, User, UserId, UserRepository, Username};
+use crate::domain::{RepositoryError, User, UserId, UserRepository, Username};
 
-const USER_COLUMNS: &str = "id, username, password_hash, created_at, updated_at";
+const USER_COLUMNS: &str = "id, username, created_at, updated_at";
 
 pub struct D1UserRepository {
     db: D1Database,
@@ -21,7 +21,6 @@ impl D1UserRepository {
 struct UserRow {
     id: String,
     username: String,
-    password_hash: String,
     created_at: i64,
     updated_at: i64,
 }
@@ -30,15 +29,7 @@ fn row_to_user(row: UserRow) -> Result<User, RepositoryError> {
     let invalid = |message: String| RepositoryError::Unavailable(message);
     let id = UserId::parse(&row.id).map_err(|err| invalid(err.to_string()))?;
     let username = Username::new(&row.username).map_err(|err| invalid(err.to_string()))?;
-    let password_hash =
-        PasswordHash::new(row.password_hash).map_err(|err| invalid(err.to_string()))?;
-    Ok(User::restore(
-        id,
-        username,
-        password_hash,
-        row.created_at,
-        row.updated_at,
-    ))
+    Ok(User::restore(id, username, row.created_at, row.updated_at))
 }
 
 impl From<worker::Error> for RepositoryError {
@@ -87,22 +78,33 @@ impl UserRepository for D1UserRepository {
     async fn save(&self, user: &User) -> Result<(), RepositoryError> {
         let id = user.id().to_string();
         let username = user.username().value().to_string();
-        let password_hash = user.password_hash().as_str().to_string();
         let created_at = user.created_at() as f64;
         let updated_at = user.updated_at() as f64;
         SendFuture::new(async move {
             self.db
                 .prepare(
-                    "INSERT INTO users (id, username, password_hash, created_at, updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT INTO users (id, username, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4)",
                 )
                 .bind_refs(&[
                     D1Type::Text(&id),
                     D1Type::Text(&username),
-                    D1Type::Text(&password_hash),
                     D1Type::Real(created_at),
                     D1Type::Real(updated_at),
                 ])?
+                .run()
+                .await?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn delete(&self, id: &UserId) -> Result<(), RepositoryError> {
+        let id = id.to_string();
+        SendFuture::new(async move {
+            self.db
+                .prepare("DELETE FROM users WHERE id = ?1")
+                .bind_refs(&[D1Type::Text(&id)])?
                 .run()
                 .await?;
             Ok(())
