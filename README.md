@@ -5,15 +5,14 @@ Cloudflare Workers API：Rust + worker-rs + axum + D1，DDD 分层用户系统�
 ## 架构
 
 ```
-src/
-├── domain/          # 纯业务：User 聚合、值对象、仓储 trait，零框架依赖
-├── application/     # 用例：注册/登录/刷新/登出/当前用户，端口定义
-├── infrastructure/  # 适配器：D1 仓储、PBKDF2、JWT、系统时钟（仅 wasm32）
-├── interfaces/      # HTTP：axum 路由、handler、DTO、错误映射
-└── worker_entry.rs  # Worker 入口与依赖注入
+crates/
+├── user/        # 用户限界上下文：domain / application / infrastructure 模块分层
+├── contract/    # 前后端共享的 API 契约（serde DTO、输入约束常量）
+├── api/         # 组合根：axum 路由、错误映射、worker 入口（cdylib）
+└── web/         # Leptos CSR 前端（骨架）
 ```
 
-依赖方向：domain ← application ← infrastructure / interfaces。
+依赖方向：contract ← api / web；user ← api；web 不依赖 user。
 
 ## 技术要点
 
@@ -27,14 +26,23 @@ src/
 ```bash
 cp .dev.vars.example .dev.vars          # 修改 JWT_SECRET
 npx wrangler d1 migrations apply sub-converter-db-dev --local
-npx wrangler dev
+npx wrangler dev                        # API :8787
+```
+
+前端骨架（Leptos CSR + Tailwind + Trunk）：
+
+```bash
+cd crates/web
+trunk serve                             # http://127.0.0.1:8080，/api 代理到 8787
 ```
 
 测试与检查：
 
 ```bash
-cargo test                              # domain/application 单测（原生）
+cargo test                              # user domain/application 单测（原生）
 cargo check --target wasm32-unknown-unknown
+cargo check -p sub-converter-web --target wasm32-unknown-unknown
+cd crates/web && trunk build            # 产物在 crates/web/dist
 ```
 
 ## API
@@ -77,3 +85,5 @@ npx wrangler secret put JWT_SECRET --env production
 npx wrangler d1 migrations apply sub-converter-db-prod --remote --env production
 npx wrangler deploy --env production
 ```
+
+> 前端骨架暂未接入 Worker 静态资源（`[assets]`），当前部署只包含 API；接入后再补 `run_worker_first`/SPA 回退配置。
