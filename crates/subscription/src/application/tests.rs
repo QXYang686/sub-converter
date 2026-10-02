@@ -7,8 +7,9 @@ use futures::executor::block_on;
 use user::UserId;
 
 use crate::domain::{
-    ExtractedConfig, Publication, PublicationId, PublicationRepository, RepositoryError,
-    SnapshotMeta, SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot, SourceUrl,
+    body_hash, ExtractedConfig, Publication, PublicationId, PublicationRepository, RepositoryError,
+    SnapshotMeta, SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot,
+    SourceUrl,
 };
 
 use super::ports::{
@@ -573,11 +574,11 @@ impl Fixture {
     }
 
     fn list_sources(&self) -> ListSourcesHandler {
-        ListSourcesHandler::new(self.sources.clone())
+        ListSourcesHandler::new(self.sources.clone(), self.snapshots.clone())
     }
 
     fn get_source(&self) -> GetSourceHandler {
-        GetSourceHandler::new(self.sources.clone())
+        GetSourceHandler::new(self.sources.clone(), self.snapshots.clone())
     }
 
     fn update_source(&self) -> UpdateSourceHandler {
@@ -1099,6 +1100,12 @@ proxies:
     server: a.example.com
     port: 443
     uuid: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  - name: A SS
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: pass
 "#;
 
 const SNAPSHOT_B: &str = r#"
@@ -1131,12 +1138,20 @@ fn seed_snapshot(fixture: &Fixture, source_id: &str, body: &str) {
     .unwrap();
 }
 
-fn fetched(body: &str) -> Result<FetchOutcome, FetchError> {
-    Ok(FetchOutcome::Fetched(FetchedDocument {
+fn fetched_document(body: &str) -> FetchedDocument {
+    FetchedDocument {
         body: body.as_bytes().to_vec(),
         etag: None,
         last_modified: None,
-    }))
+        subscription_userinfo: None,
+        profile_update_interval: None,
+        profile_web_page_url: None,
+        content_disposition: None,
+    }
+}
+
+fn fetched(body: &str) -> Result<FetchOutcome, FetchError> {
+    Ok(FetchOutcome::Fetched(fetched_document(body)))
 }
 
 fn serve_command(secret: &str) -> ServePublicationCommand {
@@ -1423,4 +1438,150 @@ fn refresh_source_rejects_body_without_supported_proxies() {
         .unwrap();
     assert_eq!(stored.body(), SNAPSHOT_A.as_bytes());
     assert!(fixture.snapshots.last_error(&source_id).is_some());
+}
+
+#[test]
+fn refresh_source_persists_extraction_and_metadata() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+
+    let mut document = fetched_document(SNAPSHOT_A);
+    document.subscription_userinfo =
+        Some("upload=1; download=2; total=3; expire=1790000000".to_string());
+    document.profile_update_interval = Some("24".to_string());
+    document.profile_web_page_url = Some("https://provider.example.com".to_string());
+    document.content_disposition =
+        Some("attachment;filename*=UTF-8''%E6%9C%BA%E5%9C%BA".to_string());
+    fixture
+        .fetcher
+        .stub(&source.url, Ok(FetchOutcome::Fetched(document)));
+
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::Refreshed);
+    assert_eq!(fixture.snapshots.replace_calls(), 1);
+
+    let stored = block_on(fixture.snapshots.find_by_source(&source_id))
+        .unwrap()
+        .unwrap();
+    let meta = stored.meta();
+    assert_eq!(meta.proxy_count, 2);
+    assert_eq!(meta.group_count, 0);
+    assert_eq!(meta.protocol_counts.get("vmess"), Some(&1));
+    assert_eq!(meta.protocol_counts.get("ss"), Some(&1));
+    assert_eq!(meta.userinfo.upload, Some(1));
+    assert_eq!(meta.userinfo.download, Some(2));
+    assert_eq!(meta.userinfo.total, Some(3));
+    assert_eq!(meta.userinfo.expire, Some(1_790_000_000));
+    assert_eq!(meta.update_interval, Some(24));
+    assert_eq!(meta.provider_name.as_deref(), Some("机场"));
+    assert_eq!(
+        meta.provider_url.as_deref(),
+        Some("https://provider.example.com")
+    );
+    assert_eq!(
+        meta.body_hash.as_deref(),
+        Some(body_hash(SNAPSHOT_A.as_bytes()).as_str())
+    );
+
+    let extraction = fixture.snapshots.extraction(&source_id).unwrap();
+    assert_eq!(extraction.proxy_count(), 2);
+    assert_eq!(extraction.proxies[1].protocol.as_deref(), Some("ss"));
+}
+
+#[test]
+fn refresh_source_skips_extraction_when_body_unchanged() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id.clone(),
+        SNAPSHOT_A.as_bytes().to_vec(),
+        None,
+        None,
+        1_000,
+        SnapshotMeta {
+            body_hash: Some(body_hash(SNAPSHOT_A.as_bytes())),
+            ..SnapshotMeta::default()
+        },
+    )))
+    .unwrap();
+
+    fixture.clock.set(2_000);
+    fixture.fetcher.stub(&source.url, fetched(SNAPSHOT_A));
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::Refreshed);
+    assert_eq!(fixture.snapshots.replace_calls(), 0);
+
+    let stored = block_on(fixture.snapshots.find_by_source(&source_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.fetched_at(), 2_000);
+}
+
+#[test]
+fn serve_publication_keeps_all_protocols() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &user_id, "合并", vec![source.id.clone()]);
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    assert!(served.content.contains("A 节点"));
+    assert!(served.content.contains("A SS"));
+    assert!(served.content.contains("type: ss"));
+}
+
+#[test]
+fn list_sources_includes_snapshot_summary() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+
+    let mut document = fetched_document(SNAPSHOT_A);
+    document.subscription_userinfo = Some("upload=10; download=20; total=30".to_string());
+    fixture
+        .fetcher
+        .stub(&source.url, Ok(FetchOutcome::Fetched(document)));
+    block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+
+    let list = block_on(fixture.list_sources().handle(&user_id)).unwrap();
+    let snapshot = list[0].snapshot.as_ref().expect("snapshot summary");
+    assert_eq!(snapshot.fetched_at, Some(1_000));
+    assert_eq!(snapshot.proxy_count, 2);
+    assert_eq!(snapshot.upload, Some(10));
+    assert_eq!(snapshot.download, Some(20));
+    assert_eq!(snapshot.total, Some(30));
+    assert_eq!(snapshot.protocol_counts.len(), 2);
+
+    let fetched = block_on(fixture.get_source().handle(GetSourceCommand {
+        user_id,
+        source_id: source.id.clone(),
+    }))
+    .unwrap();
+    assert!(fetched.snapshot.is_some());
 }

@@ -102,13 +102,18 @@ async fn fetch_inner(url: &str, validators: &FetchValidators) -> Result<FetchOut
 
     Ok(FetchOutcome::Fetched(FetchedDocument {
         body,
-        etag: response
-            .headers()
-            .get("etag")
-            .map_err(|err| FetchError::Failure(err.to_string()))?,
-        last_modified: response
-            .headers()
-            .get("last-modified")
-            .map_err(|err| FetchError::Failure(err.to_string()))?,
+        etag: header(&response, "etag")?,
+        last_modified: header(&response, "last-modified")?,
+        subscription_userinfo: header(&response, "subscription-userinfo")?,
+        profile_update_interval: header(&response, "profile-update-interval")?,
+        profile_web_page_url: header(&response, "profile-web-page-url")?,
+        content_disposition: header(&response, "content-disposition")?,
     }))
+}
+
+fn header(response: &worker::Response, name: &str) -> Result<Option<String>, FetchError> {
+    response
+        .headers()
+        .get(name)
+        .map_err(|err| FetchError::Failure(err.to_string()))
 }

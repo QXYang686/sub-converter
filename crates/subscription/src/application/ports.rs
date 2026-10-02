@@ -31,6 +31,10 @@ pub struct FetchedDocument {
     pub body: Vec<u8>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+    pub subscription_userinfo: Option<String>,
+    pub profile_update_interval: Option<String>,
+    pub profile_web_page_url: Option<String>,
+    pub content_disposition: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
