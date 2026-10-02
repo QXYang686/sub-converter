@@ -3,7 +3,7 @@ use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
 
 use crate::components::AppShell;
-use crate::pages::{HomePage, LoginPage, RegisterPage};
+use crate::pages::{HomePage, LoginPage, RegisterPage, SettingsPage};
 use crate::state::AuthStore;
 
 #[component]
@@ -18,6 +18,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/") view=HomePage/>
                     <Route path=path!("/login") view=LoginPage/>
                     <Route path=path!("/register") view=RegisterPage/>
+                    <Route path=path!("/settings") view=SettingsPage/>
                 </Routes>
             </AppShell>
         </Router>

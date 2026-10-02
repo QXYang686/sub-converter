@@ -38,6 +38,14 @@ impl ApiError {
             message,
         }
     }
+
+    pub(crate) fn passkey(message: String) -> Self {
+        Self {
+            status: 0,
+            code: "PASSKEY_ERROR".to_string(),
+            message,
+        }
+    }
 }
 
 impl std::fmt::Display for ApiError {
@@ -53,6 +61,7 @@ pub fn user_message(error: &ApiError) -> String {
         "UNAUTHORIZED" => "用户名或密码错误".to_string(),
         "FORBIDDEN" => "请求被拒绝，请刷新页面后重试".to_string(),
         "NETWORK_ERROR" => "网络异常，请稍后重试".to_string(),
+        "PASSKEY_ERROR" => "Passkey 操作未完成（可能被取消）".to_string(),
         _ => error.message.clone(),
     }
 }
@@ -74,6 +83,18 @@ pub(crate) async fn get(path: &str, bearer: Option<&str>) -> Result<String, ApiE
 
 pub(crate) async fn post(path: &str, bearer: Option<&str>) -> Result<String, ApiError> {
     let mut request = Request::post(path).header(XHR_HEADER, XHR_HEADER_VALUE);
+    if let Some(token) = bearer {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    read_response(response).await
+}
+
+pub(crate) async fn delete(path: &str, bearer: Option<&str>) -> Result<String, ApiError> {
+    let mut request = Request::delete(path).header(XHR_HEADER, XHR_HEADER_VALUE);
     if let Some(token) = bearer {
         request = request.header("Authorization", &format!("Bearer {token}"));
     }

@@ -49,6 +49,12 @@ pub fn HomePage() -> impl IntoView {
                                 >
                                     "退出登录"
                                 </button>
+                                <a
+                                    href="/settings"
+                                    class="block text-center text-sm text-slate-400 underline transition hover:text-slate-200"
+                                >
+                                    "安全设置"
+                                </a>
                             </div>
                         }
                             .into_any()

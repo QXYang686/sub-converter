@@ -3,6 +3,7 @@ mod app;
 mod components;
 mod forms;
 mod pages;
+mod passkey;
 mod state;
 
 fn main() {

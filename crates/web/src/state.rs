@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use send_wrapper::SendWrapper;
 
+use contract::passkey::PasskeyResponse;
 use contract::user::UserResponse;
 
 use crate::api::{self, ApiError};
@@ -113,6 +114,36 @@ impl AuthStore {
             }
             Err(err) => Err(err),
         }
+    }
+
+    pub async fn login_with_passkey(&self, username: Option<String>) -> Result<(), ApiError> {
+        let options = api::passkey_login_start(username.as_deref()).await?;
+        let request = crate::passkey::get_assertion(&options)
+            .await
+            .map_err(ApiError::passkey)?;
+        let auth = api::passkey_login_finish(&request).await?;
+        self.set_session(auth.access_token, auth.user);
+        Ok(())
+    }
+
+    pub async fn add_passkey(&self, label: Option<String>) -> Result<PasskeyResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        let options = api::passkey_register_start(&token).await?;
+        let mut request = crate::passkey::create_credential(&options)
+            .await
+            .map_err(ApiError::passkey)?;
+        request.label = label;
+        api::passkey_register_finish(&token, &request).await
+    }
+
+    pub async fn list_passkeys(&self) -> Result<Vec<PasskeyResponse>, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::list_passkeys(&token).await
+    }
+
+    pub async fn delete_passkey(&self, id: &str) -> Result<(), ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::delete_passkey(&token, id).await
     }
 
     fn set_session(&self, access_token: String, user: UserResponse) {

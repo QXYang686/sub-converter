@@ -5,9 +5,14 @@ pub use client::{user_message, ApiError};
 use serde::de::DeserializeOwned;
 
 use contract::auth::{AuthResponse, LoginRequest, RegisterRequest};
+use contract::passkey::{
+    PasskeyLoginFinishRequest, PasskeyLoginStartRequest, PasskeyResponse,
+    PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions,
+    RegisterPasskeyFinishRequest,
+};
 use contract::user::UserResponse;
 
-use self::client::{get, post, post_json};
+use self::client::{delete, get, post, post_json};
 
 pub async fn register(username: &str, password: &str) -> Result<UserResponse, ApiError> {
     let body = RegisterRequest {
@@ -39,6 +44,54 @@ pub async fn logout() -> Result<(), ApiError> {
 pub async fn current_user(access_token: &str) -> Result<UserResponse, ApiError> {
     let text = get("/api/users/me", Some(access_token)).await?;
     parse(&text)
+}
+
+pub async fn passkey_register_start(
+    access_token: &str,
+) -> Result<PublicKeyCredentialCreationOptions, ApiError> {
+    let text = post("/api/auth/passkey/register/start", Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn passkey_register_finish(
+    access_token: &str,
+    request: &RegisterPasskeyFinishRequest,
+) -> Result<PasskeyResponse, ApiError> {
+    let text = post_json(
+        "/api/auth/passkey/register/finish",
+        request,
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
+}
+
+pub async fn passkey_login_start(
+    username: Option<&str>,
+) -> Result<PublicKeyCredentialRequestOptions, ApiError> {
+    let body = PasskeyLoginStartRequest {
+        username: username.map(str::to_string),
+    };
+    let text = post_json("/api/auth/passkey/login/start", &body, None).await?;
+    parse(&text)
+}
+
+pub async fn passkey_login_finish(
+    request: &PasskeyLoginFinishRequest,
+) -> Result<AuthResponse, ApiError> {
+    let text = post_json("/api/auth/passkey/login/finish", request, None).await?;
+    parse(&text)
+}
+
+pub async fn list_passkeys(access_token: &str) -> Result<Vec<PasskeyResponse>, ApiError> {
+    let text = get("/api/auth/passkeys", Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn delete_passkey(access_token: &str, id: &str) -> Result<(), ApiError> {
+    delete(&format!("/api/auth/passkeys/{id}"), Some(access_token))
+        .await
+        .map(|_| ())
 }
 
 fn parse<T: DeserializeOwned>(text: &str) -> Result<T, ApiError> {
