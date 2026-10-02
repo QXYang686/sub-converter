@@ -1,6 +1,6 @@
 mod client;
 
-pub use client::ApiError;
+pub use client::{user_message, ApiError};
 
 use serde::de::DeserializeOwned;
 

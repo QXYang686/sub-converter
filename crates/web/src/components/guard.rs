@@ -3,10 +3,8 @@ use leptos_router::hooks::use_navigate;
 
 use crate::state::{AuthStatus, AuthStore};
 
-use super::spinner::Spinner;
-
 #[component]
-pub fn RequireAuth(children: ChildrenFn) -> impl IntoView {
+pub fn RequireAuth(children: Children) -> impl IntoView {
     let store = AuthStore::expect();
     let navigate = use_navigate();
     Effect::new(move |_| {
@@ -15,16 +13,11 @@ pub fn RequireAuth(children: ChildrenFn) -> impl IntoView {
         }
     });
 
-    view! {
-        {move || match store.status.get() {
-            AuthStatus::Authenticated(_) => children(),
-            _ => view! { <Spinner/> }.into_any(),
-        }}
-    }
+    children()
 }
 
 #[component]
-pub fn RedirectIfAuthenticated(children: ChildrenFn) -> impl IntoView {
+pub fn RedirectIfAuthenticated(children: Children) -> impl IntoView {
     let store = AuthStore::expect();
     let navigate = use_navigate();
     Effect::new(move |_| {
@@ -33,10 +26,5 @@ pub fn RedirectIfAuthenticated(children: ChildrenFn) -> impl IntoView {
         }
     });
 
-    view! {
-        {move || match store.status.get() {
-            AuthStatus::Authenticated(_) => ().into_any(),
-            _ => children(),
-        }}
-    }
+    children()
 }
