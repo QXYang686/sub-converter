@@ -1,11 +1,13 @@
-name: Deploy Staging
+name: Deploy Dev
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-staging
-  cancel-in-progress: false
+  group: deploy-dev
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -39,7 +41,7 @@ jobs:
         run: cargo test
 
       - name: Apply D1 migrations
-        run: npx --yes wrangler@4 d1 migrations apply sub-converter-db-dev --remote --env staging
+        run: npx --yes wrangler@4 d1 migrations apply sub-converter-db-dev --remote
 
       - name: Deploy
-        run: npx --yes wrangler@4 deploy --env staging
+        run: npx --yes wrangler@4 deploy

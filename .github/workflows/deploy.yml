@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: deploy-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -31,6 +31,9 @@ jobs:
     needs: check
     if: needs.check.outputs.configured == 'true'
     runs-on: ubuntu-latest
+    # 生产 job 命中 GitHub Environment "production" 的 Required reviewers 保护规则，
+    # push 后创建并暂停，等待人工 Approve 后才执行迁移与部署。
+    environment: production
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
