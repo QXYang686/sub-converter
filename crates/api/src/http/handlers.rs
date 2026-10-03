@@ -23,7 +23,7 @@ use contract::passkey::{
     RegisterPasskeyFinishRequest,
 };
 use contract::subscription::{
-    CreatePublicationRequest, CreateSourceRequest, PublicationResponse,
+    CreatePublicationRequest, CreateSourceRequest, PublicationResponse, RuleProviderResponse,
     SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
 };
 use contract::user::UserResponse;
@@ -32,17 +32,18 @@ use subscription::application::{
     DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand, DeleteSourceHandler,
     GetPublicationCommand, GetPublicationContentCommand, GetPublicationContentHandler,
     GetPublicationHandler, GetSourceCommand, GetSourceContentCommand, GetSourceContentHandler,
-    GetSourceHandler, ListPublicationsHandler, ListSourcesHandler, RefreshSourceHandler,
-    ServePublicationCommand, ServePublicationHandler, SetPublicationSourcesCommand,
-    SetPublicationSourcesHandler, SubscriptionFormat, UpdatePublicationCommand,
-    UpdatePublicationHandler, UpdateSourceCommand, UpdateSourceHandler,
+    GetSourceHandler, GetSourceProviderContentCommand, GetSourceProviderContentHandler,
+    ListPublicationsHandler, ListSourceProvidersCommand, ListSourceProvidersHandler,
+    ListSourcesHandler, RefreshSourceHandler, ServePublicationCommand, ServePublicationHandler,
+    SetPublicationSourcesCommand, SetPublicationSourcesHandler, SubscriptionFormat,
+    UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand, UpdateSourceHandler,
 };
 use subscription::{PublicationId, SourceId, SourceUrl, SubscriptionUserInfo};
 use user::UserId;
 
 use super::dto::{
     auth_response, creation_options, passkey_response, publication_response, refresh_auth_response,
-    request_options, source_response, user_response,
+    request_options, rule_provider_response, source_response, user_response,
 };
 use super::error::ApiError;
 use super::session;
@@ -93,6 +94,7 @@ fn spawn_source_refresh(state: &AppState, source_id: &str, url: &str) {
         state.publications.clone(),
         state.publication_snapshots.clone(),
         state.subscription_clock.clone(),
+        state.rule_providers.clone(),
     )
     .spawn(state.background.as_ref(), source_id, url);
 }
@@ -452,6 +454,47 @@ pub async fn get_source_config(
     Ok(text_response(content))
 }
 
+pub async fn list_source_providers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<RuleProviderResponse>>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler =
+        ListSourceProvidersHandler::new(state.sources.clone(), state.rule_providers.clone());
+    let providers = handler
+        .handle(ListSourceProvidersCommand {
+            user_id,
+            source_id: id,
+        })
+        .await?;
+    Ok(Json(
+        providers.into_iter().map(rule_provider_response).collect(),
+    ))
+}
+
+pub async fn get_source_provider_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, name)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler =
+        GetSourceProviderContentHandler::new(state.sources.clone(), state.rule_providers.clone());
+    let content = handler
+        .handle(GetSourceProviderContentCommand {
+            user_id,
+            source_id: id,
+            name,
+        })
+        .await?;
+    Ok(text_response(content))
+}
+
 pub async fn update_source(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -721,6 +764,7 @@ pub async fn public_subscription(
             state.publications.clone(),
             state.publication_snapshots.clone(),
             state.subscription_clock.clone(),
+            state.rule_providers.clone(),
         )),
         state.background.clone(),
         state.subscription_clock.clone(),

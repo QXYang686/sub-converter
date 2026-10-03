@@ -1,5 +1,6 @@
 mod d1_publication_repository;
 mod d1_publication_snapshot_repository;
+mod d1_rule_provider_repository;
 mod d1_snapshot_repository;
 mod d1_source_repository;
 
@@ -7,6 +8,7 @@ use crate::domain::RepositoryError;
 
 pub use d1_publication_repository::D1PublicationRepository;
 pub use d1_publication_snapshot_repository::D1PublicationSnapshotRepository;
+pub use d1_rule_provider_repository::D1RuleProviderRepository;
 pub use d1_snapshot_repository::D1SnapshotRepository;
 pub use d1_source_repository::D1SourceRepository;
 

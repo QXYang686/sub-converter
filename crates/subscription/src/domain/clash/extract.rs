@@ -4,6 +4,9 @@ use serde_json::{Map, Value as JsonValue};
 use serde_yaml::{Mapping, Value};
 
 use super::yaml_json::yaml_to_json;
+use crate::domain::ExtractedRuleProvider;
+
+const RULE_PROVIDERS_KEY: &str = "rule-providers";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtractedProxy {
@@ -27,6 +30,7 @@ pub struct ExtractedConfig {
     pub proxies: Vec<ExtractedProxy>,
     pub groups: Vec<ExtractedGroup>,
     pub rules: Vec<String>,
+    pub rule_providers: Vec<ExtractedRuleProvider>,
     pub settings: JsonValue,
 }
 
@@ -36,6 +40,7 @@ impl Default for ExtractedConfig {
             proxies: Vec::new(),
             groups: Vec::new(),
             rules: Vec::new(),
+            rule_providers: Vec::new(),
             settings: JsonValue::Object(Map::new()),
         }
     }
@@ -60,11 +65,13 @@ impl ExtractedConfig {
             })
             .unwrap_or_default();
         let settings = mapping.map(extract_settings).unwrap_or_default();
+        let rule_providers = extract_rule_providers(&settings);
 
         Self {
             proxies,
             groups,
             rules,
+            rule_providers,
             settings,
         }
     }
@@ -144,6 +151,42 @@ fn extract_settings(mapping: &Mapping) -> JsonValue {
         settings.insert(key.to_string(), yaml_to_json(value));
     }
     JsonValue::Object(settings)
+}
+
+fn extract_rule_providers(settings: &JsonValue) -> Vec<ExtractedRuleProvider> {
+    let Some(JsonValue::Object(providers)) = settings.get(RULE_PROVIDERS_KEY) else {
+        return Vec::new();
+    };
+    providers
+        .iter()
+        .map(|(name, value)| ExtractedRuleProvider {
+            name: name.clone(),
+            provider_type: value
+                .get("type")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            behavior: value
+                .get("behavior")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            url: value
+                .get("url")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            path: value
+                .get("path")
+                .and_then(JsonValue::as_str)
+                .map(str::to_string),
+            interval: value.get("interval").and_then(JsonValue::as_i64),
+            options_json: serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+        })
+        .collect()
 }
 
 fn string_field(mapping: Option<&Mapping>, key: &str) -> Option<String> {
@@ -250,6 +293,36 @@ rule-providers:
         assert!(settings.get("proxies").is_none());
         assert!(settings.get("proxy-groups").is_none());
         assert!(settings.get("rules").is_none());
+    }
+
+    #[test]
+    fn extracts_rule_provider_declarations() {
+        let config = extracted();
+        assert_eq!(config.rule_providers.len(), 1);
+        let provider = &config.rule_providers[0];
+        assert_eq!(provider.name, "reject");
+        assert_eq!(provider.provider_type.as_deref(), Some("http"));
+        assert_eq!(provider.behavior.as_deref(), Some("domain"));
+        assert_eq!(
+            provider.url.as_deref(),
+            Some("https://example.com/reject.yaml")
+        );
+        assert!(provider.is_remote());
+        let value: serde_json::Value = serde_json::from_str(&provider.options_json).unwrap();
+        assert_eq!(value["behavior"], "domain");
+        assert_eq!(value["url"], "https://example.com/reject.yaml");
+    }
+
+    #[test]
+    fn skipped_when_no_rule_providers() {
+        let config = extracted();
+        let without: serde_json::Value = serde_json::json!({"proxies": []});
+        assert!(
+            ExtractedConfig::from_value(&serde_yaml::to_value(without).unwrap())
+                .rule_providers
+                .is_empty()
+        );
+        assert!(!config.rule_providers.is_empty());
     }
 
     #[test]

@@ -8,7 +8,9 @@ mod get_publication;
 mod get_publication_content;
 mod get_source;
 mod get_source_content;
+mod get_source_provider_content;
 mod list_publications;
+mod list_source_providers;
 mod list_sources;
 mod ports;
 mod rebuild_publication_snapshot;
@@ -28,13 +30,19 @@ pub use create_publication::{CreatePublicationCommand, CreatePublicationHandler}
 pub use create_source::{CreateSourceCommand, CreateSourceHandler};
 pub use delete_publication::{DeletePublicationCommand, DeletePublicationHandler};
 pub use delete_source::{DeleteSourceCommand, DeleteSourceHandler};
-pub use dto::{ProtocolCountView, PublicationView, SourceSnapshotView, SourceView};
+pub use dto::{
+    ProtocolCountView, PublicationView, RuleProviderView, SourceSnapshotView, SourceView,
+};
 pub use error::AppError;
 pub use get_publication::{GetPublicationCommand, GetPublicationHandler};
 pub use get_publication_content::{GetPublicationContentCommand, GetPublicationContentHandler};
 pub use get_source::{GetSourceCommand, GetSourceHandler};
 pub use get_source_content::{GetSourceContentCommand, GetSourceContentHandler};
+pub use get_source_provider_content::{
+    GetSourceProviderContentCommand, GetSourceProviderContentHandler,
+};
 pub use list_publications::ListPublicationsHandler;
+pub use list_source_providers::{ListSourceProvidersCommand, ListSourceProvidersHandler};
 pub use list_sources::ListSourcesHandler;
 pub use ports::{
     BackgroundTask, BackgroundTasks, Clock, FetchError, FetchOutcome, FetchValidators,

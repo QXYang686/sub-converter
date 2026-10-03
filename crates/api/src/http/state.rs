@@ -8,7 +8,8 @@ use subscription::application::{
     BackgroundTasks, Clock as SubscriptionClock, Fetcher, SecretGenerator,
 };
 use subscription::{
-    PublicationRepository, PublicationSnapshotRepository, SnapshotRepository, SourceRepository,
+    PublicationRepository, PublicationSnapshotRepository, RuleProviderRepository,
+    SnapshotRepository, SourceRepository,
 };
 use user::UserRepository;
 
@@ -26,6 +27,7 @@ pub struct AppState {
     pub sources: Arc<dyn SourceRepository>,
     pub publications: Arc<dyn PublicationRepository>,
     pub snapshots: Arc<dyn SnapshotRepository>,
+    pub rule_providers: Arc<dyn RuleProviderRepository>,
     pub publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
     pub fetcher: Arc<dyn Fetcher>,
     pub background: Arc<dyn BackgroundTasks>,

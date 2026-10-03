@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use crate::domain::{
-    body_hash, document as parse_document, parse_content_disposition_filename,
-    parse_subscription_userinfo, parse_value, ExtractedConfig, PublicationRepository,
-    PublicationSnapshotRepository, SnapshotMeta, SnapshotRepository, SourceId, SourceRepository,
-    SourceSnapshot, SourceUrl,
+    body_hash, count_provider_rules, document as parse_document,
+    parse_content_disposition_filename, parse_subscription_userinfo, parse_value, ExtractedConfig,
+    ExtractedRuleProvider, PublicationRepository, PublicationSnapshotRepository,
+    RuleProviderRepository, RuleProviderSnapshot, SnapshotMeta, SnapshotRepository, SourceId,
+    SourceRepository, SourceSnapshot, SourceUrl,
 };
 
 use super::error::AppError;
@@ -12,6 +13,9 @@ use super::ports::{BackgroundTasks, Clock, FetchOutcome, FetchValidators, Fetche
 use super::rebuild_publication_snapshot::RebuildPublicationSnapshotHandler;
 
 pub const REFRESH_LEASE_SECONDS: i64 = 120;
+
+/// 单次源刷新最多代抓的 rule-provider 数量，避免订阅声明过多拖垮后台任务。
+pub const MAX_RULE_PROVIDERS_PER_REFRESH: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshStatus {
@@ -25,6 +29,7 @@ pub enum RefreshStatus {
 pub struct RefreshSourceHandler {
     fetcher: Arc<dyn Fetcher>,
     snapshots: Arc<dyn SnapshotRepository>,
+    rule_providers: Arc<dyn RuleProviderRepository>,
     sources: Arc<dyn SourceRepository>,
     publications: Arc<dyn PublicationRepository>,
     publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
@@ -32,6 +37,7 @@ pub struct RefreshSourceHandler {
 }
 
 impl RefreshSourceHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         fetcher: Arc<dyn Fetcher>,
         snapshots: Arc<dyn SnapshotRepository>,
@@ -39,10 +45,12 @@ impl RefreshSourceHandler {
         publications: Arc<dyn PublicationRepository>,
         publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
         clock: Arc<dyn Clock>,
+        rule_providers: Arc<dyn RuleProviderRepository>,
     ) -> Self {
         Self {
             fetcher,
             snapshots,
+            rule_providers,
             sources,
             publications,
             publication_snapshots,
@@ -53,6 +61,7 @@ impl RefreshSourceHandler {
     pub fn spawn(&self, background: &dyn BackgroundTasks, source_id: SourceId, url: SourceUrl) {
         let fetcher = self.fetcher.clone();
         let snapshots = self.snapshots.clone();
+        let rule_providers = self.rule_providers.clone();
         let sources = self.sources.clone();
         let publications = self.publications.clone();
         let publication_snapshots = self.publication_snapshots.clone();
@@ -61,6 +70,7 @@ impl RefreshSourceHandler {
             let handler = RefreshSourceHandler {
                 fetcher,
                 snapshots,
+                rule_providers,
                 sources,
                 publications,
                 publication_snapshots,
@@ -195,7 +205,12 @@ impl RefreshSourceHandler {
                     self.snapshots
                         .replace_extraction(source_id, &extraction)
                         .await?;
+                    self.rule_providers
+                        .replace_providers(source_id, &extraction.rule_providers)
+                        .await?;
                 }
+                self.refresh_provider_snapshots(source_id, &extraction.rule_providers)
+                    .await;
                 self.rebuild_publications(source_id).await;
                 Ok(RefreshStatus::Refreshed)
             }
@@ -208,6 +223,9 @@ impl RefreshSourceHandler {
                         self.backfill(source_id, previous, now).await?;
                         self.rebuild_publications(source_id).await;
                     }
+                }
+                if let Ok(providers) = self.rule_providers.list_providers(source_id).await {
+                    self.refresh_provider_snapshots(source_id, &providers).await;
                 }
                 Ok(RefreshStatus::NotModified)
             }
@@ -265,6 +283,109 @@ impl RefreshSourceHandler {
         self.snapshots
             .replace_extraction(source_id, &extraction)
             .await?;
+        self.rule_providers
+            .replace_providers(source_id, &extraction.rule_providers)
+            .await?;
         Ok(())
+    }
+
+    async fn refresh_provider_snapshots(
+        &self,
+        source_id: &SourceId,
+        providers: &[ExtractedRuleProvider],
+    ) {
+        let now = self.clock.now();
+        for provider in providers
+            .iter()
+            .filter(|provider| provider.is_remote())
+            .take(MAX_RULE_PROVIDERS_PER_REFRESH)
+        {
+            let Some(url) = provider
+                .url
+                .as_deref()
+                .and_then(|raw| SourceUrl::new(raw).ok())
+            else {
+                continue;
+            };
+            let previous = match self
+                .rule_providers
+                .find_snapshot(source_id, &provider.name)
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(err) => {
+                    tracing::warn!(
+                        source_id = %source_id,
+                        provider = %provider.name,
+                        error = %err,
+                        "failed to read rule provider snapshot"
+                    );
+                    continue;
+                }
+            };
+            let validators = previous
+                .as_ref()
+                .map(|snapshot| FetchValidators {
+                    etag: snapshot.etag().map(str::to_string),
+                    last_modified: snapshot.last_modified().map(str::to_string),
+                })
+                .unwrap_or_default();
+
+            match self.fetcher.fetch(&url, &validators).await {
+                Ok(FetchOutcome::Fetched(document)) => {
+                    let hash = body_hash(&document.body);
+                    let rule_count = count_provider_rules(&document.body);
+                    let snapshot = RuleProviderSnapshot::restore(
+                        source_id.clone(),
+                        provider.name.clone(),
+                        document.body,
+                        document.etag,
+                        document.last_modified,
+                        now,
+                        hash,
+                        rule_count,
+                        None,
+                    );
+                    if let Err(err) = self.rule_providers.save_snapshot(&snapshot).await {
+                        tracing::warn!(
+                            source_id = %source_id,
+                            provider = %provider.name,
+                            error = %err,
+                            "failed to save rule provider snapshot"
+                        );
+                    }
+                }
+                Ok(FetchOutcome::NotModified) => {
+                    if previous.is_some() {
+                        if let Err(err) = self
+                            .rule_providers
+                            .touch_snapshot(source_id, &provider.name, now)
+                            .await
+                        {
+                            tracing::warn!(
+                                source_id = %source_id,
+                                provider = %provider.name,
+                                error = %err,
+                                "failed to touch rule provider snapshot"
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    if let Err(save_err) = self
+                        .rule_providers
+                        .record_snapshot_error(source_id, &provider.name, &err.to_string())
+                        .await
+                    {
+                        tracing::warn!(
+                            source_id = %source_id,
+                            provider = %provider.name,
+                            error = %save_err,
+                            "failed to record rule provider error"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

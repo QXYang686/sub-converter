@@ -3,6 +3,7 @@ mod error;
 mod metadata;
 mod publication;
 mod repository;
+mod rule_provider;
 mod shared;
 mod source;
 
@@ -19,8 +20,10 @@ pub use publication::{
     PUBLICATION_MAX_SOURCES, PUBLICATION_SECRET_MAX_LEN, PUBLICATION_SECRET_MIN_LEN,
 };
 pub use repository::{
-    PublicationRepository, PublicationSnapshotRepository, SnapshotRepository, SourceRepository,
+    PublicationRepository, PublicationSnapshotRepository, RuleProviderRepository,
+    SnapshotRepository, SourceRepository,
 };
+pub use rule_provider::{count_provider_rules, ExtractedRuleProvider, RuleProviderSnapshot};
 pub use shared::{SubscriptionName, SUBSCRIPTION_NAME_MAX_LEN, SUBSCRIPTION_NAME_MIN_LEN};
 pub use source::{
     body_hash, SnapshotMeta, Source, SourceExtraction, SourceId, SourceSnapshot, SourceUrl,

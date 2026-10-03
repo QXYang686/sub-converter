@@ -60,6 +60,26 @@ pub struct ProtocolCountResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuleProviderResponse {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval: Option<i64>,
+    pub rule_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<i64>,
+    pub has_snapshot: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreatePublicationRequest {
     pub name: String,
     #[serde(default)]

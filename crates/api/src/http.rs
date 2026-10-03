@@ -50,6 +50,14 @@ pub fn router(state: AppState) -> Router {
             get(handlers::get_source_config),
         )
         .route(
+            "/api/subscriptions/sources/{id}/providers",
+            get(handlers::list_source_providers),
+        )
+        .route(
+            "/api/subscriptions/sources/{id}/providers/{name}",
+            get(handlers::get_source_provider_content),
+        )
+        .route(
             "/api/subscriptions/publications",
             get(handlers::list_publications).post(handlers::create_publication),
         )

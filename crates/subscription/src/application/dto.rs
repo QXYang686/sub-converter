@@ -87,6 +87,19 @@ impl From<&Source> for SourceView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleProviderView {
+    pub name: String,
+    pub provider_type: Option<String>,
+    pub behavior: Option<String>,
+    pub url: Option<String>,
+    pub interval: Option<i64>,
+    pub rule_count: u32,
+    pub fetched_at: Option<i64>,
+    pub has_snapshot: bool,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicationView {
     pub id: String,
     pub name: String,

@@ -11,7 +11,7 @@ use contract::passkey::{
     RegisterPasskeyFinishRequest,
 };
 use contract::subscription::{
-    CreatePublicationRequest, CreateSourceRequest, PublicationResponse,
+    CreatePublicationRequest, CreateSourceRequest, PublicationResponse, RuleProviderResponse,
     SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
 };
 use contract::user::UserResponse;
@@ -137,6 +137,30 @@ pub async fn delete_source(access_token: &str, id: &str) -> Result<(), ApiError>
 pub async fn source_config(access_token: &str, id: &str) -> Result<String, ApiError> {
     get(
         &format!("/api/subscriptions/sources/{id}/config"),
+        Some(access_token),
+    )
+    .await
+}
+
+pub async fn source_providers(
+    access_token: &str,
+    id: &str,
+) -> Result<Vec<RuleProviderResponse>, ApiError> {
+    let text = get(
+        &format!("/api/subscriptions/sources/{id}/providers"),
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
+}
+
+pub async fn source_provider_content(
+    access_token: &str,
+    id: &str,
+    name: &str,
+) -> Result<String, ApiError> {
+    get(
+        &format!("/api/subscriptions/sources/{id}/providers/{name}"),
         Some(access_token),
     )
     .await

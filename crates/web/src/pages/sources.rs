@@ -5,7 +5,7 @@ use leptos::task::spawn_local;
 use contract::subscription::{SourceResponse, UpdateSourceRequest};
 
 use crate::api::user_message;
-use crate::components::{Alert, CodeBlock, RequireAuth, Spinner, TextField};
+use crate::components::{Alert, CodeBlock, RequireAuth, RuleProviderPanel, Spinner, TextField};
 use crate::forms::validate_source;
 use crate::state::{AuthStatus, AuthStore};
 
@@ -19,6 +19,7 @@ pub fn SourcesPage() -> impl IntoView {
     let reload = RwSignal::new(0u32);
     let viewing = RwSignal::new(None::<String>);
     let view_content = RwSignal::new(None::<String>);
+    let providers_open = RwSignal::new(None::<String>);
 
     let list_store = store.clone();
     Effect::new(move |_| {
@@ -159,6 +160,14 @@ pub fn SourcesPage() -> impl IntoView {
         });
     };
 
+    let on_providers = move |id: String| {
+        if providers_open.get_untracked() == Some(id.clone()) {
+            providers_open.set(None);
+        } else {
+            providers_open.set(Some(id));
+        }
+    };
+
     view! {
         <RequireAuth>
             <div class="space-y-6">
@@ -236,6 +245,10 @@ pub fn SourcesPage() -> impl IntoView {
                 let view_source = source.clone();
                 let view_label_id = id.clone();
                 let view_show_id = id.clone();
+                let providers_id = id.clone();
+                let providers_label_id = id.clone();
+                let providers_show_id = id.clone();
+                let providers_source_id = id.clone();
                 let on_view = on_view.clone();
                 let enabled = source.enabled;
                 let snapshot = source.snapshot.clone();
@@ -365,6 +378,20 @@ pub fn SourcesPage() -> impl IntoView {
                             <button
                                 type="button"
                                 disabled=move || busy.get()
+                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
+                                on:click=move |_| on_providers(providers_id.clone())
+                            >
+                                {move || {
+                                    if providers_open.get() == Some(providers_label_id.clone()) {
+                                        "收起规则集"
+                                    } else {
+                                        "规则集"
+                                    }
+                                }}
+                            </button>
+                            <button
+                                type="button"
+                                disabled=move || busy.get()
                                 class="text-red-300 transition hover:text-red-200 disabled:opacity-50"
                                 on:click=move |_| on_delete(delete_id.clone())
                             >
@@ -377,6 +404,9 @@ pub fn SourcesPage() -> impl IntoView {
                             Some(text) => view! { <CodeBlock content=text/> }.into_any(),
                             None => view! { <Spinner/> }.into_any(),
                         }}
+                    </Show>
+                    <Show when=move || providers_open.get() == Some(providers_show_id.clone())>
+                        <RuleProviderPanel source_id=providers_source_id.clone()/>
                     </Show>
                 }
                     .into_any()

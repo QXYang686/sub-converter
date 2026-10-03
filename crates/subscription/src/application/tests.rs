@@ -7,10 +7,11 @@ use futures::executor::block_on;
 use user::UserId;
 
 use crate::domain::{
-    body_hash, document as parse_document, ExtractedConfig, Publication, PublicationId,
-    PublicationRepository, PublicationSnapshot, PublicationSnapshotRepository, RepositoryError,
-    SnapshotMeta, SnapshotRepository, Source, SourceExtraction, SourceId, SourceRepository,
-    SourceSnapshot, SourceUrl, SubscriptionUserInfo,
+    body_hash, document as parse_document, ExtractedConfig, ExtractedRuleProvider, Publication,
+    PublicationId, PublicationRepository, PublicationSnapshot, PublicationSnapshotRepository,
+    RepositoryError, RuleProviderRepository, RuleProviderSnapshot, SnapshotMeta,
+    SnapshotRepository, Source, SourceExtraction, SourceId, SourceRepository, SourceSnapshot,
+    SourceUrl, SubscriptionUserInfo,
 };
 
 use super::ports::{
@@ -22,8 +23,10 @@ use super::{
     CreateSourceHandler, DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand,
     DeleteSourceHandler, GetPublicationCommand, GetPublicationContentCommand,
     GetPublicationContentHandler, GetPublicationHandler, GetSourceCommand, GetSourceContentCommand,
-    GetSourceContentHandler, GetSourceHandler, ListPublicationsHandler, ListSourcesHandler,
-    PublicationView, RebuildPublicationSnapshotHandler, RefreshSourceHandler, RefreshStatus,
+    GetSourceContentHandler, GetSourceHandler, GetSourceProviderContentCommand,
+    GetSourceProviderContentHandler, ListPublicationsHandler, ListSourceProvidersCommand,
+    ListSourceProvidersHandler, ListSourcesHandler, PublicationView,
+    RebuildPublicationSnapshotHandler, RefreshSourceHandler, RefreshStatus,
     ServePublicationCommand, ServePublicationHandler, SetPublicationSourcesCommand,
     SetPublicationSourcesHandler, SourceView, UpdatePublicationCommand, UpdatePublicationHandler,
     UpdateSourceCommand, UpdateSourceHandler,
@@ -35,6 +38,8 @@ struct Store {
     publications: Mutex<Vec<Publication>>,
     snapshots: Mutex<Vec<StoredSnapshot>>,
     extracted: Mutex<HashMap<SourceId, ExtractedConfig>>,
+    rule_providers: Mutex<HashMap<SourceId, Vec<ExtractedRuleProvider>>>,
+    rule_provider_snapshots: Mutex<HashMap<(SourceId, String), RuleProviderSnapshot>>,
 }
 
 #[derive(Clone)]
@@ -271,6 +276,145 @@ impl SnapshotRepository for InMemorySnapshotRepository {
                 Ok(true)
             }
         }
+    }
+}
+
+#[derive(Clone, Default)]
+struct InMemoryRuleProviderRepository {
+    store: Arc<Store>,
+}
+
+#[async_trait]
+impl RuleProviderRepository for InMemoryRuleProviderRepository {
+    async fn replace_providers(
+        &self,
+        source_id: &SourceId,
+        providers: &[ExtractedRuleProvider],
+    ) -> Result<(), RepositoryError> {
+        let names: std::collections::HashSet<&str> = providers
+            .iter()
+            .map(|provider| provider.name.as_str())
+            .collect();
+        self.store
+            .rule_provider_snapshots
+            .lock()
+            .unwrap()
+            .retain(|(id, name), _| id != source_id || names.contains(name.as_str()));
+        self.store
+            .rule_providers
+            .lock()
+            .unwrap()
+            .insert(source_id.clone(), providers.to_vec());
+        Ok(())
+    }
+
+    async fn list_providers(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<ExtractedRuleProvider>, RepositoryError> {
+        Ok(self
+            .store
+            .rule_providers
+            .lock()
+            .unwrap()
+            .get(source_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn find_snapshot(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+    ) -> Result<Option<RuleProviderSnapshot>, RepositoryError> {
+        Ok(self
+            .store
+            .rule_provider_snapshots
+            .lock()
+            .unwrap()
+            .get(&(source_id.clone(), name.to_string()))
+            .cloned())
+    }
+
+    async fn list_snapshots(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<RuleProviderSnapshot>, RepositoryError> {
+        Ok(self
+            .store
+            .rule_provider_snapshots
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|((id, _), _)| id == source_id)
+            .map(|(_, snapshot)| snapshot.clone())
+            .collect())
+    }
+
+    async fn save_snapshot(&self, snapshot: &RuleProviderSnapshot) -> Result<(), RepositoryError> {
+        self.store.rule_provider_snapshots.lock().unwrap().insert(
+            (snapshot.source_id().clone(), snapshot.name().to_string()),
+            snapshot.clone(),
+        );
+        Ok(())
+    }
+
+    async fn touch_snapshot(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+        fetched_at: i64,
+    ) -> Result<(), RepositoryError> {
+        if let Some(snapshot) = self
+            .store
+            .rule_provider_snapshots
+            .lock()
+            .unwrap()
+            .get_mut(&(source_id.clone(), name.to_string()))
+        {
+            snapshot.mark_refreshed(fetched_at);
+        }
+        Ok(())
+    }
+
+    async fn record_snapshot_error(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+        error: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut snapshots = self.store.rule_provider_snapshots.lock().unwrap();
+        let key = (source_id.clone(), name.to_string());
+        match snapshots.get_mut(&key) {
+            Some(snapshot) => snapshot.set_error(error),
+            None => {
+                snapshots.insert(
+                    key,
+                    RuleProviderSnapshot::restore(
+                        source_id.clone(),
+                        name.to_string(),
+                        Vec::new(),
+                        None,
+                        None,
+                        0,
+                        String::new(),
+                        0,
+                        Some(error.to_string()),
+                    ),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    async fn clear(&self, source_id: &SourceId) -> Result<(), RepositoryError> {
+        self.store.rule_providers.lock().unwrap().remove(source_id);
+        self.store
+            .rule_provider_snapshots
+            .lock()
+            .unwrap()
+            .retain(|(id, _), _| id != source_id);
+        Ok(())
     }
 }
 
@@ -626,6 +770,7 @@ struct Fixture {
     sources: Arc<InMemorySourceRepository>,
     publications: Arc<InMemoryPublicationRepository>,
     snapshots: Arc<InMemorySnapshotRepository>,
+    rule_providers: Arc<InMemoryRuleProviderRepository>,
     publication_snapshots: Arc<InMemoryPublicationSnapshotRepository>,
     fetcher: Arc<FakeFetcher>,
     background: Arc<RecordingBackgroundTasks>,
@@ -644,9 +789,10 @@ impl Fixture {
                 store: store.clone(),
             }),
             snapshots: Arc::new(InMemorySnapshotRepository {
-                store,
+                store: store.clone(),
                 replace_calls: Arc::new(AtomicUsize::new(0)),
             }),
+            rule_providers: Arc::new(InMemoryRuleProviderRepository { store }),
             publication_snapshots: Arc::new(InMemoryPublicationSnapshotRepository::default()),
             fetcher: Arc::new(FakeFetcher::default()),
             background: Arc::new(RecordingBackgroundTasks::default()),
@@ -663,7 +809,16 @@ impl Fixture {
             self.publications.clone(),
             self.publication_snapshots.clone(),
             self.clock.clone(),
+            self.rule_providers.clone(),
         )
+    }
+
+    fn list_source_providers(&self) -> ListSourceProvidersHandler {
+        ListSourceProvidersHandler::new(self.sources.clone(), self.rule_providers.clone())
+    }
+
+    fn get_source_provider_content(&self) -> GetSourceProviderContentHandler {
+        GetSourceProviderContentHandler::new(self.sources.clone(), self.rule_providers.clone())
     }
 
     fn rebuild_publication(&self) -> RebuildPublicationSnapshotHandler {
@@ -2167,4 +2322,128 @@ fn get_publication_content_is_scoped_to_owner() {
             }),
     );
     assert!(matches!(result, Err(AppError::NotFound)));
+}
+
+const SNAPSHOT_WITH_PROVIDER: &str = r#"
+proxies:
+  - name: A 节点
+    type: vmess
+    server: a.example.com
+    port: 443
+    uuid: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+rule-providers:
+  reject:
+    type: http
+    behavior: domain
+    url: https://cdn.example.com/reject.yaml
+    path: ./ruleset/reject.yaml
+    interval: 86400
+  local:
+    type: file
+    behavior: classical
+    path: ./ruleset/local.yaml
+rules:
+  - RULE-SET,reject,REJECT
+  - MATCH,DIRECT
+"#;
+
+const PROVIDER_BODY: &str = "# ad rules\ngoogle.com\n+.doubleclick.net\n";
+
+#[test]
+fn refresh_source_fetches_remote_rule_providers() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    fixture
+        .fetcher
+        .stub(&source.url, fetched(SNAPSHOT_WITH_PROVIDER));
+    fixture.fetcher.stub(
+        "https://cdn.example.com/reject.yaml",
+        fetched(PROVIDER_BODY),
+    );
+
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::Refreshed);
+
+    let providers = block_on(
+        fixture
+            .list_source_providers()
+            .handle(ListSourceProvidersCommand {
+                user_id: user_id.clone(),
+                source_id: source.id.clone(),
+            }),
+    )
+    .unwrap();
+    assert_eq!(providers.len(), 2);
+
+    let reject = providers.iter().find(|p| p.name == "reject").unwrap();
+    assert_eq!(reject.behavior.as_deref(), Some("domain"));
+    assert_eq!(
+        reject.url.as_deref(),
+        Some("https://cdn.example.com/reject.yaml")
+    );
+    assert_eq!(reject.rule_count, 2);
+    assert!(reject.has_snapshot);
+    assert!(reject.fetched_at.is_some());
+
+    let local = providers.iter().find(|p| p.name == "local").unwrap();
+    assert!(!local.has_snapshot);
+    assert_eq!(local.rule_count, 0);
+    assert_eq!(local.url, None);
+
+    let content = block_on(fixture.get_source_provider_content().handle(
+        GetSourceProviderContentCommand {
+            user_id,
+            source_id: source.id.clone(),
+            name: "reject".to_string(),
+        },
+    ))
+    .unwrap();
+    assert_eq!(content, PROVIDER_BODY);
+}
+
+#[test]
+fn get_source_provider_content_requires_snapshot_and_owner() {
+    let fixture = Fixture::new(1_000);
+    let alice = UserId::new();
+    let bob = UserId::new();
+    let source = create_source(&fixture, &alice, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    fixture
+        .fetcher
+        .stub(&source.url, fetched(SNAPSHOT_WITH_PROVIDER));
+    fixture.fetcher.stub(
+        "https://cdn.example.com/reject.yaml",
+        fetched(PROVIDER_BODY),
+    );
+    block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+
+    let missing = block_on(fixture.get_source_provider_content().handle(
+        GetSourceProviderContentCommand {
+            user_id: alice.clone(),
+            source_id: source.id.clone(),
+            name: "local".to_string(),
+        },
+    ));
+    assert!(matches!(missing, Err(AppError::NotFound)));
+
+    let other = block_on(fixture.get_source_provider_content().handle(
+        GetSourceProviderContentCommand {
+            user_id: bob,
+            source_id: source.id.clone(),
+            name: "reject".to_string(),
+        },
+    ));
+    assert!(matches!(other, Err(AppError::NotFound)));
 }

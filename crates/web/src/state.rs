@@ -9,7 +9,7 @@ use send_wrapper::SendWrapper;
 
 use contract::passkey::PasskeyResponse;
 use contract::subscription::{
-    CreatePublicationRequest, CreateSourceRequest, PublicationResponse,
+    CreatePublicationRequest, CreateSourceRequest, PublicationResponse, RuleProviderResponse,
     SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
 };
 use contract::user::UserResponse;
@@ -185,6 +185,16 @@ impl AuthStore {
     pub async fn source_config(&self, id: &str) -> Result<String, ApiError> {
         let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
         api::source_config(&token, id).await
+    }
+
+    pub async fn source_providers(&self, id: &str) -> Result<Vec<RuleProviderResponse>, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::source_providers(&token, id).await
+    }
+
+    pub async fn source_provider_content(&self, id: &str, name: &str) -> Result<String, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::source_provider_content(&token, id, name).await
     }
 
     pub async fn list_publications(&self) -> Result<Vec<PublicationResponse>, ApiError> {

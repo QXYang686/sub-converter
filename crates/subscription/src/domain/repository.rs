@@ -2,8 +2,9 @@ use async_trait::async_trait;
 use user::UserId;
 
 use super::{
-    ExtractedConfig, Publication, PublicationId, PublicationSecret, PublicationSnapshot,
-    RepositoryError, Source, SourceExtraction, SourceId, SourceSnapshot,
+    ExtractedConfig, ExtractedRuleProvider, Publication, PublicationId, PublicationSecret,
+    PublicationSnapshot, RepositoryError, RuleProviderSnapshot, Source, SourceExtraction, SourceId,
+    SourceSnapshot,
 };
 
 #[async_trait]
@@ -89,6 +90,50 @@ pub trait SnapshotRepository: Send + Sync {
         now: i64,
         lease_until: i64,
     ) -> Result<bool, RepositoryError>;
+}
+
+#[async_trait]
+pub trait RuleProviderRepository: Send + Sync {
+    /// 用最新的声明整体替换某源的 rule-provider 列表，并清理已移除 provider 的快照。
+    async fn replace_providers(
+        &self,
+        source_id: &SourceId,
+        providers: &[ExtractedRuleProvider],
+    ) -> Result<(), RepositoryError>;
+
+    async fn list_providers(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<ExtractedRuleProvider>, RepositoryError>;
+
+    async fn find_snapshot(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+    ) -> Result<Option<RuleProviderSnapshot>, RepositoryError>;
+
+    async fn list_snapshots(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<RuleProviderSnapshot>, RepositoryError>;
+
+    async fn save_snapshot(&self, snapshot: &RuleProviderSnapshot) -> Result<(), RepositoryError>;
+
+    async fn touch_snapshot(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+        fetched_at: i64,
+    ) -> Result<(), RepositoryError>;
+
+    async fn record_snapshot_error(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+        error: &str,
+    ) -> Result<(), RepositoryError>;
+
+    async fn clear(&self, source_id: &SourceId) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

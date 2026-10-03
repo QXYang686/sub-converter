@@ -9,10 +9,13 @@ use contract::passkey::{
     UserEntity,
 };
 use contract::subscription::{
-    ProtocolCountResponse, PublicationResponse, SourceResponse, SourceSnapshotResponse,
+    ProtocolCountResponse, PublicationResponse, RuleProviderResponse, SourceResponse,
+    SourceSnapshotResponse,
 };
 use contract::user::UserResponse;
-use subscription::application::{PublicationView, SourceSnapshotView, SourceView};
+use subscription::application::{
+    PublicationView, RuleProviderView, SourceSnapshotView, SourceView,
+};
 
 const OPTION_TIMEOUT_MS: u32 = 300_000;
 
@@ -56,6 +59,20 @@ fn snapshot_response(view: SourceSnapshotView) -> SourceSnapshotResponse {
         update_interval: view.update_interval,
         provider_name: view.provider_name,
         provider_url: view.provider_url,
+        last_error: view.last_error,
+    }
+}
+
+pub fn rule_provider_response(view: RuleProviderView) -> RuleProviderResponse {
+    RuleProviderResponse {
+        name: view.name,
+        provider_type: view.provider_type,
+        behavior: view.behavior,
+        url: view.url,
+        interval: view.interval,
+        rule_count: view.rule_count,
+        fetched_at: view.fetched_at,
+        has_snapshot: view.has_snapshot,
         last_error: view.last_error,
     }
 }
