@@ -6,12 +6,14 @@ Cloudflare Workers 上的单体应用：Rust（worker-rs + axum）API + Leptos C
 
 | crate | 职责 | 关键模型 |
 |---|---|---|
-| `crates/user` | 用户上下文：账号身份锚点 | `User`、`UserId`、`Username`、`UserRepository` |
-| `crates/auth` | 认证上下文：登录方式与凭证、会话 | `Credential`（Password \| Passkey）、`Challenge`、JWT/refresh token、WebAuthn 验签 |
-| `crates/subscription` | 订阅上下文：两类订阅与拉取转换分发 | `Source`、`Publication`、`SourceSnapshot`、Clash 解析/合并/渲染 |
-| `crates/contract` | 前后端共享契约（发布语言） | 请求/响应 DTO、输入约束常量 |
+| [`crates/user`](../crates/user/src/lib.rs) | 用户上下文：账号身份锚点 | `User`、`UserId`、`Username`、`UserRepository` |
+| [`crates/auth`](../crates/auth/src/lib.rs) | 认证上下文：登录方式与凭证、会话 | `Credential`（Password \| Passkey）、`Challenge`、JWT/refresh token、WebAuthn 验签 |
+| [`crates/subscription`](../crates/subscription/src/lib.rs) | 订阅上下文：两类订阅与拉取转换分发 | `Source`、`Publication`、`SourceSnapshot`、Clash 解析/合并/渲染 |
+| [`crates/contract`](../crates/contract/src/lib.rs) | 前后端共享契约（发布语言） | 请求/响应 DTO、输入约束常量 |
 | `crates/api` | 组合根：路由、错误映射、依赖注入、跨上下文编排 | axum handlers、`AppState`、worker 入口 |
 | `crates/web` | Leptos CSR 表现层 | 页面、组件、passkey JS 桥、AuthStore |
+
+各上下文的内部细节（聚合与不变量、用例、端口、拥有的表）以 crate 级 rustdoc 维护：`cargo doc --workspace --open`，或直接看对应 `src/lib.rs`。本文件只保留 context map 与跨上下文视图。
 
 ## 依赖方向
 

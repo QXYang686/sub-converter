@@ -1,3 +1,9 @@
+//! 前后端共享契约（发布语言）：serde DTO 与输入约束常量。
+//!
+//! - 模块对应上下文：`auth`、`passkey`、`user`、`subscription`
+//! - 约束常量是 web 表单校验与后端 domain 规则的共同来源，二者一致性由 `crates/api` 的测试保证
+//! - 不依赖任何业务 crate：`api` 负责 domain/DTO 映射，`web` 只依赖本 crate
+
 pub mod auth;
 pub mod passkey;
 pub mod subscription;
