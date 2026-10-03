@@ -7,9 +7,10 @@ use futures::executor::block_on;
 use user::UserId;
 
 use crate::domain::{
-    body_hash, ExtractedConfig, Publication, PublicationId, PublicationRepository, RepositoryError,
-    SnapshotMeta, SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot,
-    SourceUrl, SubscriptionUserInfo,
+    body_hash, ExtractedConfig, Publication, PublicationId, PublicationRepository,
+    PublicationSnapshot, PublicationSnapshotRepository, RepositoryError, SnapshotMeta,
+    SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot, SourceUrl,
+    SubscriptionUserInfo,
 };
 
 use super::ports::{
@@ -21,9 +22,10 @@ use super::{
     CreateSourceHandler, DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand,
     DeleteSourceHandler, GetPublicationCommand, GetPublicationHandler, GetSourceCommand,
     GetSourceHandler, ListPublicationsHandler, ListSourcesHandler, PublicationView,
-    RefreshSourceHandler, RefreshStatus, ServePublicationCommand, ServePublicationHandler,
-    SetPublicationSourcesCommand, SetPublicationSourcesHandler, SourceView,
-    UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand, UpdateSourceHandler,
+    RebuildPublicationSnapshotHandler, RefreshSourceHandler, RefreshStatus,
+    ServePublicationCommand, ServePublicationHandler, SetPublicationSourcesCommand,
+    SetPublicationSourcesHandler, SourceView, UpdatePublicationCommand, UpdatePublicationHandler,
+    UpdateSourceCommand, UpdateSourceHandler,
 };
 
 #[derive(Default)]
@@ -244,6 +246,51 @@ impl SnapshotRepository for InMemorySnapshotRepository {
     }
 }
 
+#[derive(Clone, Default)]
+struct InMemoryPublicationSnapshotRepository {
+    store: Arc<Mutex<HashMap<(PublicationId, String), PublicationSnapshot>>>,
+}
+
+impl InMemoryPublicationSnapshotRepository {
+    fn get(&self, publication_id: &PublicationId, format: &str) -> Option<PublicationSnapshot> {
+        self.store
+            .lock()
+            .unwrap()
+            .get(&(publication_id.clone(), format.to_string()))
+            .cloned()
+    }
+}
+
+#[async_trait]
+impl PublicationSnapshotRepository for InMemoryPublicationSnapshotRepository {
+    async fn find(
+        &self,
+        publication_id: &PublicationId,
+        format: &str,
+    ) -> Result<Option<PublicationSnapshot>, RepositoryError> {
+        Ok(self.get(publication_id, format))
+    }
+
+    async fn save(&self, snapshot: &PublicationSnapshot) -> Result<(), RepositoryError> {
+        self.store.lock().unwrap().insert(
+            (
+                snapshot.publication_id().clone(),
+                snapshot.format().to_string(),
+            ),
+            snapshot.clone(),
+        );
+        Ok(())
+    }
+
+    async fn delete(&self, publication_id: &PublicationId) -> Result<(), RepositoryError> {
+        self.store
+            .lock()
+            .unwrap()
+            .retain(|(id, _), _| id != publication_id);
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct FakeFetcher {
     responses: Mutex<HashMap<String, Result<FetchOutcome, FetchError>>>,
@@ -459,6 +506,34 @@ impl PublicationRepository for InMemoryPublicationRepository {
             .collect())
     }
 
+    async fn list_by_source_id(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<Publication>, RepositoryError> {
+        let existing: HashSet<SourceId> = self
+            .store
+            .sources
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|source| source.id().clone())
+            .collect();
+        Ok(self
+            .store
+            .publications
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|publication| {
+                publication
+                    .sources()
+                    .iter()
+                    .any(|binding| binding.source_id() == source_id)
+            })
+            .map(|publication| publication_with_existing_sources(publication, &existing))
+            .collect())
+    }
+
     async fn save(&self, publication: &Publication) -> Result<(), RepositoryError> {
         let mut publications = self.store.publications.lock().unwrap();
         if publications
@@ -523,6 +598,7 @@ struct Fixture {
     sources: Arc<InMemorySourceRepository>,
     publications: Arc<InMemoryPublicationRepository>,
     snapshots: Arc<InMemorySnapshotRepository>,
+    publication_snapshots: Arc<InMemoryPublicationSnapshotRepository>,
     fetcher: Arc<FakeFetcher>,
     background: Arc<RecordingBackgroundTasks>,
     clock: Arc<FakeClock>,
@@ -543,6 +619,7 @@ impl Fixture {
                 store,
                 replace_calls: Arc::new(AtomicUsize::new(0)),
             }),
+            publication_snapshots: Arc::new(InMemoryPublicationSnapshotRepository::default()),
             fetcher: Arc::new(FakeFetcher::default()),
             background: Arc::new(RecordingBackgroundTasks::default()),
             clock: Arc::new(FakeClock::new(now)),
@@ -554,6 +631,18 @@ impl Fixture {
         RefreshSourceHandler::new(
             self.fetcher.clone(),
             self.snapshots.clone(),
+            self.sources.clone(),
+            self.publications.clone(),
+            self.publication_snapshots.clone(),
+            self.clock.clone(),
+        )
+    }
+
+    fn rebuild_publication(&self) -> RebuildPublicationSnapshotHandler {
+        RebuildPublicationSnapshotHandler::new(
+            self.sources.clone(),
+            self.snapshots.clone(),
+            self.publication_snapshots.clone(),
             self.clock.clone(),
         )
     }
@@ -563,6 +652,7 @@ impl Fixture {
             self.publications.clone(),
             self.sources.clone(),
             self.snapshots.clone(),
+            self.publication_snapshots.clone(),
             Arc::new(self.refresh_source()),
             self.background.clone(),
             self.clock.clone(),
@@ -1682,4 +1772,95 @@ fn serve_publication_aggregates_userinfo() {
     assert_eq!(served.userinfo.download, Some(22));
     assert_eq!(served.userinfo.total, Some(150));
     assert_eq!(served.userinfo.expire, Some(1_000));
+}
+
+#[test]
+fn serve_publication_reads_cached_snapshot() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &user_id, "合并", vec![source.id.clone()]);
+    let publication_id = PublicationId::parse(&publication.id).unwrap();
+    block_on(
+        fixture
+            .publication_snapshots
+            .save(&PublicationSnapshot::restore(
+                publication_id.clone(),
+                "clash".to_string(),
+                "cached-content".to_string(),
+                SubscriptionUserInfo {
+                    upload: Some(7),
+                    ..SubscriptionUserInfo::default()
+                },
+                1_000,
+            )),
+    )
+    .unwrap();
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    assert_eq!(served.content, "cached-content");
+    assert_eq!(served.userinfo.upload, Some(7));
+    assert_eq!(fixture.background.pending(), 1);
+}
+
+#[test]
+fn refresh_source_rebuilds_publication_snapshot() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &user_id, "合并", vec![source.id.clone()]);
+    let publication_id = PublicationId::parse(&publication.id).unwrap();
+    let source_id = source_id_of(&source);
+    fixture.fetcher.stub(&source.url, fetched(SNAPSHOT_A));
+
+    block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+
+    let cached = fixture
+        .publication_snapshots
+        .get(&publication_id, "clash")
+        .expect("publication snapshot rebuilt after refresh");
+    assert!(cached.content().contains("A 节点"));
+    assert!(cached.content().contains("A SS"));
+}
+
+#[test]
+fn rebuild_publication_snapshot_uses_current_sources() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let first = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let second = create_source(&fixture, &user_id, "B", "https://b.example.com/sub");
+    let publication = create_publication(
+        &fixture,
+        &user_id,
+        "合并",
+        vec![second.id.clone(), first.id.clone()],
+    );
+    let publication_id = PublicationId::parse(&publication.id).unwrap();
+    seed_snapshot(&fixture, &first.id, SNAPSHOT_A);
+    seed_snapshot(&fixture, &second.id, SNAPSHOT_B);
+
+    let handler = fixture.rebuild_publication();
+    let stored = block_on(fixture.publications.find_by_id(&user_id, &publication_id))
+        .unwrap()
+        .unwrap();
+    block_on(handler.handle(&stored)).unwrap();
+
+    let cached = fixture
+        .publication_snapshots
+        .get(&publication_id, "clash")
+        .unwrap();
+    let b_index = cached.content().find("B 节点").unwrap();
+    let a_index = cached.content().find("A 节点").unwrap();
+    assert!(b_index < a_index);
 }

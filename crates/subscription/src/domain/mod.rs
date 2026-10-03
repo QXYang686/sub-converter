@@ -3,6 +3,7 @@ mod error;
 mod extract;
 mod metadata;
 mod publication;
+mod publication_snapshot;
 mod repository;
 mod snapshot;
 mod source;
@@ -19,7 +20,10 @@ pub use metadata::{
     parse_content_disposition_filename, parse_subscription_userinfo, SubscriptionUserInfo,
 };
 pub use publication::{Publication, PublicationSource};
-pub use repository::{PublicationRepository, SnapshotRepository, SourceRepository};
+pub use publication_snapshot::PublicationSnapshot;
+pub use repository::{
+    PublicationRepository, PublicationSnapshotRepository, SnapshotRepository, SourceRepository,
+};
 pub use snapshot::{body_hash, SnapshotMeta, SourceSnapshot};
 pub use source::Source;
 pub use value_object::{

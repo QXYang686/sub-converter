@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::domain::{
-    merge, parse as parse_clash, render, PublicationRepository, PublicationSecret,
-    SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot, SubscriptionUserInfo,
+    merge, parse as parse_clash, render, Publication, PublicationRepository, PublicationSecret,
+    PublicationSnapshot, PublicationSnapshotRepository, SnapshotRepository, Source, SourceId,
+    SourceRepository, SourceSnapshot, SubscriptionUserInfo,
 };
 
 use super::error::AppError;
@@ -27,16 +28,19 @@ pub struct ServePublicationHandler {
     publications: Arc<dyn PublicationRepository>,
     sources: Arc<dyn SourceRepository>,
     snapshots: Arc<dyn SnapshotRepository>,
+    publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
     refresher: Arc<RefreshSourceHandler>,
     background: Arc<dyn BackgroundTasks>,
     clock: Arc<dyn Clock>,
 }
 
 impl ServePublicationHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         publications: Arc<dyn PublicationRepository>,
         sources: Arc<dyn SourceRepository>,
         snapshots: Arc<dyn SnapshotRepository>,
+        publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
         refresher: Arc<RefreshSourceHandler>,
         background: Arc<dyn BackgroundTasks>,
         clock: Arc<dyn Clock>,
@@ -45,6 +49,7 @@ impl ServePublicationHandler {
             publications,
             sources,
             snapshots,
+            publication_snapshots,
             refresher,
             background,
             clock,
@@ -71,18 +76,7 @@ impl ServePublicationHandler {
             return Err(AppError::NotFound);
         }
 
-        let all_sources = self.sources.list_by_user(publication.user_id()).await?;
-        let by_id: HashMap<&SourceId, &Source> = all_sources
-            .iter()
-            .map(|source| (source.id(), source))
-            .collect();
-        let ordered: Vec<&Source> = publication
-            .sources()
-            .iter()
-            .filter_map(|binding| by_id.get(binding.source_id()).copied())
-            .filter(|source| source.enabled())
-            .collect();
-
+        let ordered = ordered_enabled_sources(self.sources.as_ref(), &publication).await?;
         for source in &ordered {
             self.refresher.spawn(
                 self.background.as_ref(),
@@ -91,47 +85,99 @@ impl ServePublicationHandler {
             );
         }
 
-        let source_ids: Vec<SourceId> = ordered.iter().map(|source| source.id().clone()).collect();
-        let snapshots = self.snapshots.list_by_sources(&source_ids).await?;
-        let bodies: HashMap<&SourceId, &SourceSnapshot> = snapshots
-            .iter()
-            .map(|snapshot| (snapshot.source_id(), snapshot))
-            .collect();
-
-        let mut parsed = Vec::new();
-        let mut userinfo = SubscriptionUserInfo::default();
-        for source in &ordered {
-            let Some(snapshot) = bodies.get(source.id()) else {
-                continue;
-            };
-            aggregate_userinfo(&mut userinfo, &snapshot.meta().userinfo);
-            let Ok(text) = std::str::from_utf8(snapshot.body()) else {
-                continue;
-            };
-            match parse_clash(text) {
-                Ok(result) if !result.is_empty() => parsed.push(result),
-                Ok(result) => tracing::debug!(
-                    source_id = %source.id(),
-                    skipped = result.skipped(),
-                    "source snapshot has no supported proxies"
-                ),
-                Err(err) => tracing::debug!(
-                    source_id = %source.id(),
-                    error = %err,
-                    "source snapshot is not a clash config"
-                ),
-            }
+        let format = command.format.as_str();
+        if let Some(cached) = self
+            .publication_snapshots
+            .find(publication.id(), format)
+            .await?
+        {
+            return Ok(GeneratedSubscription {
+                name: publication.name().value().to_string(),
+                content: cached.content().to_string(),
+                userinfo: cached.userinfo().clone(),
+            });
         }
 
-        let merged = merge(parsed.iter());
-        let content = match command.format {
-            SubscriptionFormat::Clash => render(&merged),
-        };
-        Ok(GeneratedSubscription {
-            name: publication.name().value().to_string(),
-            content,
-            userinfo,
+        let source_ids: Vec<SourceId> = ordered.iter().map(|source| source.id().clone()).collect();
+        let snapshots = self.snapshots.list_by_sources(&source_ids).await?;
+        let generated = build_subscription(&publication, &ordered, &snapshots, command.format);
+        let snapshot = PublicationSnapshot::restore(
+            publication.id().clone(),
+            format.to_string(),
+            generated.content.clone(),
+            generated.userinfo.clone(),
+            now,
+        );
+        self.publication_snapshots.save(&snapshot).await?;
+        Ok(generated)
+    }
+}
+
+pub(super) async fn ordered_enabled_sources(
+    sources: &dyn SourceRepository,
+    publication: &Publication,
+) -> Result<Vec<Source>, AppError> {
+    let all_sources = sources.list_by_user(publication.user_id()).await?;
+    let by_id: HashMap<&SourceId, &Source> = all_sources
+        .iter()
+        .map(|source| (source.id(), source))
+        .collect();
+    Ok(publication
+        .sources()
+        .iter()
+        .filter_map(|binding| {
+            by_id
+                .get(binding.source_id())
+                .map(|source| (*source).clone())
         })
+        .filter(|source| source.enabled())
+        .collect())
+}
+
+pub(super) fn build_subscription(
+    publication: &Publication,
+    ordered: &[Source],
+    snapshots: &[SourceSnapshot],
+    format: SubscriptionFormat,
+) -> GeneratedSubscription {
+    let bodies: HashMap<&SourceId, &SourceSnapshot> = snapshots
+        .iter()
+        .map(|snapshot| (snapshot.source_id(), snapshot))
+        .collect();
+
+    let mut parsed = Vec::new();
+    let mut userinfo = SubscriptionUserInfo::default();
+    for source in ordered {
+        let Some(snapshot) = bodies.get(source.id()) else {
+            continue;
+        };
+        aggregate_userinfo(&mut userinfo, &snapshot.meta().userinfo);
+        let Ok(text) = std::str::from_utf8(snapshot.body()) else {
+            continue;
+        };
+        match parse_clash(text) {
+            Ok(result) if !result.is_empty() => parsed.push(result),
+            Ok(result) => tracing::debug!(
+                source_id = %source.id(),
+                skipped = result.skipped(),
+                "source snapshot has no supported proxies"
+            ),
+            Err(err) => tracing::debug!(
+                source_id = %source.id(),
+                error = %err,
+                "source snapshot is not a clash config"
+            ),
+        }
+    }
+
+    let merged = merge(parsed.iter());
+    let content = match format {
+        SubscriptionFormat::Clash => render(&merged),
+    };
+    GeneratedSubscription {
+        name: publication.name().value().to_string(),
+        content,
+        userinfo,
     }
 }
 

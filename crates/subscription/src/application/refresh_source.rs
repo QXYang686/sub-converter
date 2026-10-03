@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use crate::domain::{
     body_hash, document as parse_document, parse_content_disposition_filename,
-    parse_subscription_userinfo, parse_value, ExtractedConfig, SnapshotMeta, SnapshotRepository,
-    SourceId, SourceSnapshot, SourceUrl,
+    parse_subscription_userinfo, parse_value, ExtractedConfig, PublicationRepository,
+    PublicationSnapshotRepository, SnapshotMeta, SnapshotRepository, SourceId, SourceRepository,
+    SourceSnapshot, SourceUrl,
 };
 
 use super::error::AppError;
 use super::ports::{BackgroundTasks, Clock, FetchOutcome, FetchValidators, Fetcher};
+use super::rebuild_publication_snapshot::RebuildPublicationSnapshotHandler;
 
 pub const REFRESH_LEASE_SECONDS: i64 = 120;
 
@@ -23,6 +25,9 @@ pub enum RefreshStatus {
 pub struct RefreshSourceHandler {
     fetcher: Arc<dyn Fetcher>,
     snapshots: Arc<dyn SnapshotRepository>,
+    sources: Arc<dyn SourceRepository>,
+    publications: Arc<dyn PublicationRepository>,
+    publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
     clock: Arc<dyn Clock>,
 }
 
@@ -30,11 +35,17 @@ impl RefreshSourceHandler {
     pub fn new(
         fetcher: Arc<dyn Fetcher>,
         snapshots: Arc<dyn SnapshotRepository>,
+        sources: Arc<dyn SourceRepository>,
+        publications: Arc<dyn PublicationRepository>,
+        publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             fetcher,
             snapshots,
+            sources,
+            publications,
+            publication_snapshots,
             clock,
         }
     }
@@ -42,17 +53,48 @@ impl RefreshSourceHandler {
     pub fn spawn(&self, background: &dyn BackgroundTasks, source_id: SourceId, url: SourceUrl) {
         let fetcher = self.fetcher.clone();
         let snapshots = self.snapshots.clone();
+        let sources = self.sources.clone();
+        let publications = self.publications.clone();
+        let publication_snapshots = self.publication_snapshots.clone();
         let clock = self.clock.clone();
         background.spawn(Box::pin(async move {
             let handler = RefreshSourceHandler {
                 fetcher,
                 snapshots,
+                sources,
+                publications,
+                publication_snapshots,
                 clock,
             };
             if let Err(err) = handler.handle(&source_id, &url).await {
                 tracing::warn!(source_id = %source_id, error = %err, "source refresh failed");
             }
         }));
+    }
+
+    async fn rebuild_publications(&self, source_id: &SourceId) {
+        let publications = match self.publications.list_by_source_id(source_id).await {
+            Ok(publications) => publications,
+            Err(err) => {
+                tracing::warn!(source_id = %source_id, error = %err, "failed to list publications for rebuild");
+                return;
+            }
+        };
+        for publication in &publications {
+            let rebuild = RebuildPublicationSnapshotHandler::new(
+                self.sources.clone(),
+                self.snapshots.clone(),
+                self.publication_snapshots.clone(),
+                self.clock.clone(),
+            );
+            if let Err(err) = rebuild.handle(publication).await {
+                tracing::warn!(
+                    publication_id = %publication.id(),
+                    error = %err,
+                    "publication snapshot rebuild failed"
+                );
+            }
+        }
     }
 
     #[tracing::instrument(skip_all, fields(source_id = %source_id))]
@@ -149,12 +191,16 @@ impl RefreshSourceHandler {
                         .replace_extraction(source_id, &extraction)
                         .await?;
                 }
+                self.rebuild_publications(source_id).await;
                 Ok(RefreshStatus::Refreshed)
             }
             Ok(FetchOutcome::NotModified) => {
                 self.snapshots.touch(source_id, now).await?;
                 if let Some(previous) = previous.as_ref() {
-                    self.backfill(source_id, previous, now).await?;
+                    if previous.meta().body_hash.is_none() {
+                        self.backfill(source_id, previous, now).await?;
+                        self.rebuild_publications(source_id).await;
+                    }
                 }
                 Ok(RefreshStatus::NotModified)
             }

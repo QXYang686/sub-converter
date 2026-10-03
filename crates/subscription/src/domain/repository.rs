@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use user::UserId;
 
 use super::{
-    ExtractedConfig, Publication, PublicationId, PublicationSecret, RepositoryError, Source,
-    SourceId, SourceSnapshot,
+    ExtractedConfig, Publication, PublicationId, PublicationSecret, PublicationSnapshot,
+    RepositoryError, Source, SourceId, SourceSnapshot,
 };
 
 #[async_trait]
@@ -37,6 +37,11 @@ pub trait PublicationRepository: Send + Sync {
     ) -> Result<Option<Publication>, RepositoryError>;
 
     async fn list_by_user(&self, user_id: &UserId) -> Result<Vec<Publication>, RepositoryError>;
+
+    async fn list_by_source_id(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<Publication>, RepositoryError>;
 
     async fn save(&self, publication: &Publication) -> Result<(), RepositoryError>;
 
@@ -77,4 +82,17 @@ pub trait SnapshotRepository: Send + Sync {
         now: i64,
         lease_until: i64,
     ) -> Result<bool, RepositoryError>;
+}
+
+#[async_trait]
+pub trait PublicationSnapshotRepository: Send + Sync {
+    async fn find(
+        &self,
+        publication_id: &PublicationId,
+        format: &str,
+    ) -> Result<Option<PublicationSnapshot>, RepositoryError>;
+
+    async fn save(&self, snapshot: &PublicationSnapshot) -> Result<(), RepositoryError>;
+
+    async fn delete(&self, publication_id: &PublicationId) -> Result<(), RepositoryError>;
 }

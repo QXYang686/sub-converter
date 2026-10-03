@@ -227,6 +227,48 @@ impl PublicationRepository for D1PublicationRepository {
         .await
     }
 
+    async fn list_by_source_id(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<Publication>, RepositoryError> {
+        let source_id = source_id.to_string();
+        SendFuture::new(async move {
+            let result = self
+                .db
+                .prepare(format!(
+                    "SELECT {PUBLICATION_COLUMNS} FROM publications \
+                     JOIN publication_sources ON publication_sources.publication_id = publications.id \
+                     WHERE publication_sources.source_id = ?1 \
+                     ORDER BY publications.created_at, publications.id"
+                ))
+                .bind_refs(&[D1Type::Text(&source_id)])?
+                .all()
+                .await?;
+            let rows = result.results::<PublicationRow>()?;
+
+            let mut publications = Vec::with_capacity(rows.len());
+            for row in rows {
+                let result = self
+                    .db
+                    .prepare(
+                        "SELECT publication_id, source_id, position FROM publication_sources \
+                         WHERE publication_id = ?1 ORDER BY position",
+                    )
+                    .bind_refs(&[D1Type::Text(&row.id)])?
+                    .all()
+                    .await?;
+                let sources = result
+                    .results::<BindingRow>()?
+                    .into_iter()
+                    .map(row_to_binding)
+                    .collect::<Result<Vec<_>, _>>()?;
+                publications.push(row_to_publication(row, sources)?);
+            }
+            Ok(publications)
+        })
+        .await
+    }
+
     async fn save(&self, publication: &Publication) -> Result<(), RepositoryError> {
         let id = publication.id().to_string();
         let user_id = publication.user_id().to_string();
@@ -313,6 +355,9 @@ impl PublicationRepository for D1PublicationRepository {
         SendFuture::new(async move {
             self.db
                 .batch(vec![
+                    self.db
+                        .prepare("DELETE FROM publication_snapshots WHERE publication_id = ?1")
+                        .bind_refs(&[D1Type::Text(&id)])?,
                     self.db
                         .prepare("DELETE FROM publication_sources WHERE publication_id = ?1")
                         .bind_refs(&[D1Type::Text(&id)])?,
