@@ -4,6 +4,7 @@ members = [
     "crates/api",
     "crates/auth",
     "crates/contract",
+    "crates/rule-set",
     "crates/subscription",
     "crates/user",
     "crates/web",
@@ -12,6 +13,7 @@ default-members = [
     "crates/api",
     "crates/auth",
     "crates/contract",
+    "crates/rule-set",
     "crates/subscription",
     "crates/user",
 ]
