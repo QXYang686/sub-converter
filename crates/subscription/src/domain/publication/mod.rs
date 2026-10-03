@@ -1,11 +1,81 @@
+mod snapshot;
+
 use std::collections::HashSet;
+use std::fmt;
 
 use user::UserId;
+use uuid::Uuid;
 
-use super::{
-    DomainError, PublicationId, PublicationSecret, SourceId, SubscriptionName,
-    PUBLICATION_MAX_SOURCES,
-};
+use super::{DomainError, SourceId, SubscriptionName};
+
+pub use snapshot::PublicationSnapshot;
+
+pub const PUBLICATION_SECRET_MIN_LEN: usize = 32;
+pub const PUBLICATION_SECRET_MAX_LEN: usize = 128;
+pub const PUBLICATION_MAX_SOURCES: usize = 50;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PublicationId(Uuid);
+
+impl PublicationId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    pub fn parse(value: &str) -> Result<Self, DomainError> {
+        Uuid::parse_str(value)
+            .map(Self)
+            .map_err(|_| DomainError::InvalidPublicationId)
+    }
+
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl Default for PublicationId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for PublicationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PublicationSecret(String);
+
+impl PublicationSecret {
+    pub fn new(raw: &str) -> Result<Self, DomainError> {
+        let length = raw.chars().count();
+        let valid_length =
+            (PUBLICATION_SECRET_MIN_LEN..=PUBLICATION_SECRET_MAX_LEN).contains(&length);
+        let valid_chars = raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !valid_length || !valid_chars {
+            return Err(DomainError::InvalidPublicationSecret);
+        }
+        Ok(Self(raw.to_string()))
+    }
+
+    pub fn value(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PublicationSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicationSource {
@@ -174,6 +244,42 @@ impl Publication {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publication_id_round_trips_through_string() {
+        let publication_id = PublicationId::new();
+        assert_eq!(
+            PublicationId::parse(&publication_id.to_string()).unwrap(),
+            publication_id
+        );
+    }
+
+    #[test]
+    fn publication_id_rejects_invalid_input() {
+        assert_eq!(
+            PublicationId::parse("not-a-uuid"),
+            Err(DomainError::InvalidPublicationId)
+        );
+    }
+
+    #[test]
+    fn publication_secret_validates_shape() {
+        let valid = "a".repeat(PUBLICATION_SECRET_MIN_LEN);
+        assert!(PublicationSecret::new(&valid).is_ok());
+        let cases = [
+            "short".to_string(),
+            "a".repeat(PUBLICATION_SECRET_MAX_LEN + 1),
+            "with space".repeat(4),
+            "bad!".repeat(8),
+        ];
+        for raw in cases {
+            assert_eq!(
+                PublicationSecret::new(&raw),
+                Err(DomainError::InvalidPublicationSecret),
+                "expected {raw:?} to be rejected"
+            );
+        }
+    }
 
     fn sample_publication() -> Publication {
         Publication::create(

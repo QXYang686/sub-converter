@@ -1,6 +1,91 @@
-use user::UserId;
+mod snapshot;
 
-use super::{SourceId, SourceUrl, SubscriptionName};
+use std::fmt;
+
+use user::UserId;
+use uuid::Uuid;
+
+use super::{DomainError, SubscriptionName};
+
+pub use snapshot::{body_hash, SnapshotMeta, SourceSnapshot};
+
+pub const SOURCE_URL_MAX_LEN: usize = 2048;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceId(Uuid);
+
+impl SourceId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    pub fn parse(value: &str) -> Result<Self, DomainError> {
+        Uuid::parse_str(value)
+            .map(Self)
+            .map_err(|_| DomainError::InvalidSourceId)
+    }
+
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl Default for SourceId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for SourceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceUrl(String);
+
+impl SourceUrl {
+    pub fn new(raw: &str) -> Result<Self, DomainError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty()
+            || trimmed.len() > SOURCE_URL_MAX_LEN
+            || trimmed.chars().any(|c| c.is_whitespace() || c.is_control())
+        {
+            return Err(DomainError::InvalidSourceUrl);
+        }
+
+        let lower = trimmed.to_ascii_lowercase();
+        let rest = if lower.starts_with("https://") {
+            &trimmed[8..]
+        } else if lower.starts_with("http://") {
+            &trimmed[7..]
+        } else {
+            return Err(DomainError::InvalidSourceUrl);
+        };
+
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        if authority.is_empty() || authority.contains('@') {
+            return Err(DomainError::InvalidSourceUrl);
+        }
+
+        Ok(Self(trimmed.to_string()))
+    }
+
+    pub fn value(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for SourceUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Source {
@@ -106,6 +191,57 @@ impl Source {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_id_round_trips_through_string() {
+        let source_id = SourceId::new();
+        assert_eq!(SourceId::parse(&source_id.to_string()).unwrap(), source_id);
+    }
+
+    #[test]
+    fn source_id_rejects_invalid_input() {
+        assert_eq!(
+            SourceId::parse("not-a-uuid"),
+            Err(DomainError::InvalidSourceId)
+        );
+    }
+
+    #[test]
+    fn source_url_accepts_http_and_https() {
+        let cases = [
+            "http://example.com/sub",
+            "https://example.com/sub?token=abc#frag",
+            "HTTPS://example.com/sub",
+            " http://example.com ",
+        ];
+        for raw in cases {
+            assert!(
+                SourceUrl::new(raw).is_ok(),
+                "expected {raw:?} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn source_url_rejects_invalid_values() {
+        let too_long = format!("https://example.com/{}", "x".repeat(SOURCE_URL_MAX_LEN));
+        let cases = [
+            "",
+            "ftp://example.com",
+            "example.com",
+            "https://",
+            "https://user:pass@example.com",
+            "https://example.com/a b",
+            too_long.as_str(),
+        ];
+        for raw in cases {
+            assert_eq!(
+                SourceUrl::new(raw),
+                Err(DomainError::InvalidSourceUrl),
+                "expected {raw:?} to be rejected"
+            );
+        }
+    }
 
     fn sample_source() -> Source {
         Source::create(

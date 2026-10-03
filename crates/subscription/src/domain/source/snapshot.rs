@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use super::{SourceId, SubscriptionUserInfo};
+use super::SourceId;
+use crate::domain::SubscriptionUserInfo;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SnapshotMeta {

@@ -1,4 +1,5 @@
-use super::{PublicationId, SubscriptionUserInfo};
+use super::PublicationId;
+use crate::domain::SubscriptionUserInfo;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicationSnapshot {

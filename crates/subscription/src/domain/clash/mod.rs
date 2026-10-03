@@ -1,9 +1,14 @@
+mod extract;
+mod yaml_json;
+
 use std::collections::HashSet;
 
 use serde_yaml::{Mapping, Value};
 use thiserror::Error;
 
-use super::yaml_json::yaml_to_json;
+pub use extract::{ExtractedConfig, ExtractedGroup, ExtractedProxy};
+
+use yaml_json::yaml_to_json;
 
 pub const PROXY_GROUP_NAME: &str = "PROXY";
 
