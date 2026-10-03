@@ -104,6 +104,6 @@ D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全
 - `cargo check --target wasm32-unknown-unknown`：worker 相关代码编译
 - 本地 e2e：curl cookie jar；passkey 用 Node WebCrypto 模拟 ES256 客户端；公开订阅用本地桩上游 + 本地 D1 验证「空配置 → 后台抓取 → 二次拉取有节点」与条件请求
 - 真实数据验证用临时脚本/example 对照真实源，订阅 URL 与内容一律不落仓库
-- staging 做功能验证，生产只做只读冒烟，见 [runbook](runbook.md)
+- dev 做功能验证，生产只做只读冒烟，见 [runbook](runbook.md)
 
 相关决策记录见 [docs/decisions](decisions/)。

@@ -59,7 +59,7 @@ refresh token 走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，J
 
 ## 部署
 
-生产 https://sub.yqxpro.com（Worker `sub-converter`），push `main` 由 GitHub Actions 自动测试、迁移并部署；staging 手动触发 `Deploy Staging`。环境与操作细节见 [runbook](docs/runbook.md)。
+dev https://sub-converter-dev.yqxpro.workers.dev（Worker `sub-converter-dev`）在 push `main` 时由 GitHub Actions 自动测试、迁移并部署；生产 https://sub.yqxpro.com（Worker `sub-converter`）同样由 push 触发，但需在 Actions 上审批通过后才实际部署。环境与操作细节见 [runbook](docs/runbook.md)。
 
 首次初始化（新账号或灾备重建）：
 
@@ -68,6 +68,11 @@ npx wrangler login
 npx wrangler d1 create sub-converter-db-dev
 npx wrangler d1 create sub-converter-db-prod
 # 将输出 database_id 填入 wrangler.toml 对应 binding
+# dev（Wrangler 顶层默认节）
+npx wrangler secret put JWT_SECRET
+npx wrangler d1 migrations apply sub-converter-db-dev --remote
+npx wrangler deploy
+# 生产
 npx wrangler secret put JWT_SECRET --env production
 npx wrangler d1 migrations apply sub-converter-db-prod --remote --env production
 npx wrangler deploy --env production
