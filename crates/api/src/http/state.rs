@@ -7,7 +7,9 @@ use auth::domain::{ChallengeRepository, CredentialRepository};
 use subscription::application::{
     BackgroundTasks, Clock as SubscriptionClock, Fetcher, SecretGenerator,
 };
-use subscription::{PublicationRepository, SnapshotRepository, SourceRepository};
+use subscription::{
+    PublicationRepository, PublicationSnapshotRepository, SnapshotRepository, SourceRepository,
+};
 use user::UserRepository;
 
 #[derive(Clone)]
@@ -24,6 +26,7 @@ pub struct AppState {
     pub sources: Arc<dyn SourceRepository>,
     pub publications: Arc<dyn PublicationRepository>,
     pub snapshots: Arc<dyn SnapshotRepository>,
+    pub publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
     pub fetcher: Arc<dyn Fetcher>,
     pub background: Arc<dyn BackgroundTasks>,
     pub subscription_clock: Arc<dyn SubscriptionClock>,

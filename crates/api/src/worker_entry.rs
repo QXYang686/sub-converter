@@ -12,7 +12,8 @@ use auth::infrastructure::security::{
 use auth::webauthn::RustWebAuthnVerifier;
 use subscription::infrastructure::fetch::HttpFetcher;
 use subscription::infrastructure::persistence::{
-    D1PublicationRepository, D1SnapshotRepository, D1SourceRepository,
+    D1PublicationRepository, D1PublicationSnapshotRepository, D1SnapshotRepository,
+    D1SourceRepository,
 };
 use subscription::infrastructure::security::{
     OsSecretGenerator, SystemClock as SubscriptionSystemClock,
@@ -63,6 +64,7 @@ async fn fetch(
         sources: Arc::new(D1SourceRepository::new(session.clone())),
         publications: Arc::new(D1PublicationRepository::new(session.clone())),
         snapshots: Arc::new(D1SnapshotRepository::new(session.clone())),
+        publication_snapshots: Arc::new(D1PublicationSnapshotRepository::new(session.clone())),
         fetcher: Arc::new(HttpFetcher),
         background: Arc::new(WorkerBackgroundTasks::new(ctx)),
         subscription_clock: Arc::new(SubscriptionSystemClock),

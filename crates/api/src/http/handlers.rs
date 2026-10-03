@@ -36,7 +36,7 @@ use subscription::application::{
     SubscriptionFormat, UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand,
     UpdateSourceHandler,
 };
-use subscription::{SourceId, SourceUrl, SubscriptionUserInfo};
+use subscription::{PublicationId, SourceId, SourceUrl, SubscriptionUserInfo};
 use user::UserId;
 
 use super::dto::{
@@ -88,9 +88,29 @@ fn spawn_source_refresh(state: &AppState, source_id: &str, url: &str) {
     RefreshSourceHandler::new(
         state.fetcher.clone(),
         state.snapshots.clone(),
+        state.sources.clone(),
+        state.publications.clone(),
+        state.publication_snapshots.clone(),
         state.subscription_clock.clone(),
     )
     .spawn(state.background.as_ref(), source_id, url);
+}
+
+async fn invalidate_source_publications(state: &AppState, source_id: &SourceId) {
+    match state.publications.list_by_source_id(source_id).await {
+        Ok(publications) => {
+            for publication in publications {
+                if let Err(err) = state.publication_snapshots.delete(publication.id()).await {
+                    tracing::warn!(
+                        publication_id = %publication.id(),
+                        error = %err,
+                        "failed to invalidate publication snapshot"
+                    );
+                }
+            }
+        }
+        Err(err) => tracing::warn!(error = %err, "failed to list publications for invalidation"),
+    }
 }
 
 pub async fn register(
@@ -450,11 +470,19 @@ pub async fn update_source(
     let reenabled = previous
         .as_ref()
         .is_some_and(|old| !old.enabled() && source.enabled);
+    let enabled_changed = previous
+        .as_ref()
+        .is_some_and(|old| old.enabled() != source.enabled);
     if url_changed {
         if let Some(source_id) = &refresh_target {
             if let Err(err) = state.snapshots.clear(source_id).await {
                 tracing::warn!(error = %err, "failed to clear source snapshot");
             }
+        }
+    }
+    if let Some(source_id) = &refresh_target {
+        if url_changed || enabled_changed {
+            invalidate_source_publications(&state, source_id).await;
         }
     }
     if source.enabled && (url_changed || reenabled) {
@@ -470,6 +498,11 @@ pub async fn delete_source(
 ) -> Result<StatusCode, ApiError> {
     let user = current_user(&state, &headers).await?;
     let user_id = parse_user_id(&user)?;
+
+    let source_id = SourceId::parse(&id).ok();
+    if let Some(source_id) = &source_id {
+        invalidate_source_publications(&state, source_id).await;
+    }
 
     let handler = DeleteSourceHandler::new(state.sources.clone());
     handler
@@ -603,6 +636,15 @@ pub async fn set_publication_sources(
             source_ids: request.source_ids,
         })
         .await?;
+    if let Ok(publication_id) = PublicationId::parse(&publication.id) {
+        if let Err(err) = state.publication_snapshots.delete(&publication_id).await {
+            tracing::warn!(
+                publication_id = %publication.id,
+                error = %err,
+                "failed to invalidate publication snapshot"
+            );
+        }
+    }
     Ok(Json(publication_response(publication)))
 }
 
@@ -619,9 +661,13 @@ pub async fn public_subscription(
         state.publications.clone(),
         state.sources.clone(),
         state.snapshots.clone(),
+        state.publication_snapshots.clone(),
         Arc::new(RefreshSourceHandler::new(
             state.fetcher.clone(),
             state.snapshots.clone(),
+            state.sources.clone(),
+            state.publications.clone(),
+            state.publication_snapshots.clone(),
             state.subscription_clock.clone(),
         )),
         state.background.clone(),
