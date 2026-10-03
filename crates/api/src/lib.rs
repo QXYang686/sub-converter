@@ -1,3 +1,11 @@
+//! 组合根：axum 路由、错误映射、依赖注入与跨上下文编排。
+//!
+//! - `http`：router、handlers、DTO 映射、cookie、`AppState`、请求链路追踪
+//! - `worker_entry`：`#[event(fetch)]` 入口，每请求装配 D1 session 与全部端口（仅 `wasm32`）
+//! - `telemetry`：JSON 日志初始化（仅 `wasm32`）
+//!
+//! 这里是唯一了解全部上下文的地方，负责 domain/DTO 互转；业务规则仍留在各上下文内。
+
 pub mod http;
 
 #[cfg(target_arch = "wasm32")]
