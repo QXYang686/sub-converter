@@ -1,5 +1,6 @@
 target
 node_modules
+.worktree/
 crates/web/dist
 
 ### Wrangler ###
