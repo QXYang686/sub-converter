@@ -79,8 +79,8 @@ D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全
 - **Passkey 注册**：start 生成 challenge + options（需登录）→ 浏览器 `navigator.credentials.create` → finish 验签并存公钥
 - **Passkey 登录**：start（可带用户名绑定 allowCredentials，也可 discoverable）→ `credentials.get` → finish 验签并签发会话
 - **会话**：access token 15 分钟只存内存；refresh token 30 天走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，D1 存哈希，刷新轮换，重放检测吊销整族
-- **拉取**：源变更或公开拉取时经 `wait_until` 异步抓取（固定 FlClash UA，条件请求，租约去重），原始响应体与订阅响应头存 `source_snapshots`，并提取全部协议节点、分组、规则与顶层设置；body 哈希未变只更新元数据，失败保留旧快照与旧提取数据并记录错误
-- **转换与分发**：`GET /s/{secret}` 校验启用/过期后直接读 `publication_snapshots` 返回渲染结果；源刷新成功会重建绑定该源的所有发布订阅快照，管理变更（源 URL/启用/删除、发布组合）即时失效缓存，未命中时内联构建一次。详见 [ADR 0009](decisions/0009-pull-convert-serve.md)、[ADR 0010](decisions/0010-extract-subscription-content.md) 与 [ADR 0011](decisions/0011-publication-render-snapshots.md)
+- **拉取**：源变更或公开拉取时经 `wait_until` 异步抓取（固定 FlClash UA，条件请求，租约去重），原始响应体与订阅响应头存 `source_snapshots`，并提取全部协议节点、分组、规则与顶层设置；body 哈希未变只更新元数据，失败保留旧快照与旧提取数据并记录错误；提取缺失时在 200 未变或 304 路径补写
+- **转换与分发**：`GET /s/{secret}` 校验启用/过期后直接读 `publication_snapshots` 返回渲染结果；源刷新成功会重建绑定该源的所有发布订阅快照，管理变更（源 URL/启用/删除、发布组合）即时失效缓存，未命中时从提取数据合成一次（含分组、规则与设置）。详见 [ADR 0009](decisions/0009-pull-convert-serve.md)、[ADR 0010](decisions/0010-extract-subscription-content.md)、[ADR 0011](decisions/0011-publication-render-snapshots.md) 与 [ADR 0012](decisions/0012-merge-extracted-config-into-publication.md)
 
 ## 配置分层
 
