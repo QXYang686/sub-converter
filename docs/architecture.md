@@ -65,6 +65,7 @@ crates/
 | `source_snapshots` | 每个源最近一次成功抓取的原始 body（BLOB，≤1.8MB）、ETag/Last-Modified、刷新租约、最近错误，以及 body 哈希、节点/分组/规则计数、协议分布、订阅流量与机场名 |
 | `source_proxies` / `source_proxy_groups` | 从快照提取的节点与分组，逐行存储，`options` 为完整原始字段 JSON |
 | `source_config` | 从快照提取的规则数组与顶层设置（dns/tun/hosts/rule-providers 等）JSON |
+| `publication_snapshots` | 每个发布订阅物化的渲染结果（`publication_id + format`）、聚合流量与生成时间，公开分发直接查表 |
 
 迁移文件在 `migrations/`，操作规范见 [runbook](runbook.md)。
 
@@ -78,7 +79,7 @@ D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全
 - **Passkey 登录**：start（可带用户名绑定 allowCredentials，也可 discoverable）→ `credentials.get` → finish 验签并签发会话
 - **会话**：access token 15 分钟只存内存；refresh token 30 天走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，D1 存哈希，刷新轮换，重放检测吊销整族
 - **拉取**：源变更或公开拉取时经 `wait_until` 异步抓取（固定 FlClash UA，条件请求，租约去重），原始响应体与订阅响应头存 `source_snapshots`，并提取全部协议节点、分组、规则与顶层设置；body 哈希未变只更新元数据，失败保留旧快照与旧提取数据并记录错误
-- **转换与分发**：`GET /s/{secret}` 读取快照 → 按绑定顺序合并全部 Clash `proxies`（不再限制协议）→ 去 name 规范化 JSON 身份去重、名字去重 → 渲染最小完整配置；无快照返回空配置并触发抓取。详见 [ADR 0009](decisions/0009-pull-convert-serve.md) 与 [ADR 0010](decisions/0010-extract-subscription-content.md)
+- **转换与分发**：`GET /s/{secret}` 校验启用/过期后直接读 `publication_snapshots` 返回渲染结果；源刷新成功会重建绑定该源的所有发布订阅快照，管理变更（源 URL/启用/删除、发布组合）即时失效缓存，未命中时内联构建一次。详见 [ADR 0009](decisions/0009-pull-convert-serve.md)、[ADR 0010](decisions/0010-extract-subscription-content.md) 与 [ADR 0011](decisions/0011-publication-render-snapshots.md)
 
 ## 配置分层
 

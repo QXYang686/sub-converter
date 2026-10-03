@@ -107,6 +107,7 @@ npx wrangler d1 execute sub-converter-db-prod --remote --env production \
 | 日志出现 `Network connection lost` | 源站对 Cloudflare 出网偶发 TLS 抖动或拦截；租约 120s 后下次拉取会自动重试，持续失败考虑换源 |
 | 源抓取长期失败但旧数据仍可用 | 预期行为：失败只记 `last_error`，不覆盖最后一次成功快照 |
 | 订阅体超过 1.8 MB | 抓取层按 `TooLarge` 跳过（D1 单行约 2 MB），需要更大容量时改 gzip+base64 或迁 KV/R2 |
+| 公开订阅内容不更新 | 源刷新成功后会自动重建发布订阅快照；管理端改源/组合会先失效缓存，下次拉取重建。可查 `SELECT publication_id, generated_at, length(content) FROM publication_snapshots` 确认时间 |
 | 源列表不显示流量/节点分布 | 迁移后首次抓取前的旧快照没有提取数据，等下一次抓取；解析失败的源会保留旧摘要并在列表显示 `last_error` |
 | 公开订阅里没有某类协议节点 | 现在全协议输出。仍缺失时查 `source_proxies` 是否落库，或看 `source_snapshots.last_error`（源站按 UA 分流/解析失败都会跳过） |
 | 注册 500，日志 `iteration counts above 100000 are not supported` | 生产 WebCrypto PBKDF2 上限 100k，不能调高迭代（见 ADR 0003） |
