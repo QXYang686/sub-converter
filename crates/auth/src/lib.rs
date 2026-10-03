@@ -15,14 +15,11 @@
 //! # 端口与适配器
 //!
 //! - 端口：`PasswordHasher`、`TokenService`、`WebAuthnVerifier`、`RefreshTokenRepository`、`Clock`、`RandomSource`
-//! - `webauthn`：纯 Rust ES256/Ed25519 验签，原生可测；D1/PBKDF2/JWT 适配器在 `infrastructure`（仅 `wasm32`）
+//! - `infrastructure`：D1/PBKDF2/JWT 适配器（仅 `wasm32`）；`security::RustWebAuthnVerifier` 为纯 Rust ES256/Ed25519 验签，原生可测
 //! - 拥有的表：`credentials`、`refresh_tokens`、`webauthn_challenges`
 //!
 //! 仅单向依赖 `user` 的 `UserId`/`Username`/`UserRepository`。
 
 pub mod application;
 pub mod domain;
-pub mod webauthn;
-
-#[cfg(target_arch = "wasm32")]
 pub mod infrastructure;

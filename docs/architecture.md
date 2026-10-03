@@ -42,8 +42,7 @@ crates/
 ├── auth/src/
 │   ├── domain/            # Credential/Passkey、Challenge、仓储 trait
 │   ├── application/       # 注册/登录/刷新/登出/passkey 用例、ports、config
-│   ├── infrastructure/    # D1 仓储、PBKDF2、JWT、随机、时钟（cfg(wasm32)）
-│   └── webauthn.rs        # 纯 Rust 验签（ES256/Ed25519），原生可测
+│   └── infrastructure/    # D1 仓储、PBKDF2、JWT、随机、时钟（cfg(wasm32)）；security/webauthn 纯 Rust 验签，原生可测
 ├── subscription/src/
 │   ├── domain/            # Source/Publication/SourceSnapshot、Clash 解析合并渲染
 │   ├── application/       # 管理用例 + RefreshSource/ServePublication、ports
@@ -75,7 +74,7 @@ D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全
 
 ## 关键流程
 
-- **注册**：`api` 编排「建 User → 建 Password 凭证」，凭证写入失败时补偿删除 User
+- **注册**：`auth` 的注册用例编排「建 User → 建 Password 凭证」，凭证写入失败时补偿删除 User；`api` 只做 DTO 映射
 - **密码登录**：按用户名找 User → 按 user_id 找 Password 凭证 → 校验 → 签发 access + refresh
 - **Passkey 注册**：start 生成 challenge + options（需登录）→ 浏览器 `navigator.credentials.create` → finish 验签并存公钥
 - **Passkey 登录**：start（可带用户名绑定 allowCredentials，也可 discoverable）→ `credentials.get` → finish 验签并签发会话

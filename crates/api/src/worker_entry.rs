@@ -7,9 +7,8 @@ use auth::infrastructure::persistence::{
     D1ChallengeRepository, D1CredentialRepository, D1RefreshTokenRepository,
 };
 use auth::infrastructure::security::{
-    JwtTokenService, OsRandomSource, Pbkdf2PasswordHasher, SystemClock,
+    JwtTokenService, OsRandomSource, Pbkdf2PasswordHasher, RustWebAuthnVerifier, SystemClock,
 };
-use auth::webauthn::RustWebAuthnVerifier;
 use subscription::infrastructure::fetch::HttpFetcher;
 use subscription::infrastructure::persistence::{
     D1PublicationRepository, D1PublicationSnapshotRepository, D1SnapshotRepository,
