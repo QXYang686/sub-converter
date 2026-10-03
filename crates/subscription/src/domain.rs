@@ -7,8 +7,8 @@ mod shared;
 mod source;
 
 pub use clash::{
-    document, merge, parse, parse_value, render, ClashError, ClashProxy, ExtractedConfig,
-    ExtractedGroup, ExtractedProxy, ParsedClash, PROXY_GROUP_NAME,
+    document, merge_configs, parse, parse_value, render_config, ClashError, ClashProxy,
+    ExtractedConfig, ExtractedGroup, ExtractedProxy, MergedConfig, ParsedClash, PROXY_GROUP_NAME,
 };
 pub use error::{DomainError, RepositoryError};
 pub use metadata::{
@@ -23,5 +23,6 @@ pub use repository::{
 };
 pub use shared::{SubscriptionName, SUBSCRIPTION_NAME_MAX_LEN, SUBSCRIPTION_NAME_MIN_LEN};
 pub use source::{
-    body_hash, SnapshotMeta, Source, SourceId, SourceSnapshot, SourceUrl, SOURCE_URL_MAX_LEN,
+    body_hash, SnapshotMeta, Source, SourceExtraction, SourceId, SourceSnapshot, SourceUrl,
+    SOURCE_URL_MAX_LEN,
 };

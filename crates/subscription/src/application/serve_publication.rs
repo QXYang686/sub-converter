@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::domain::{
-    merge, parse as parse_clash, render, Publication, PublicationRepository, PublicationSecret,
-    PublicationSnapshot, PublicationSnapshotRepository, SnapshotRepository, Source, SourceId,
-    SourceRepository, SourceSnapshot, SubscriptionUserInfo,
+    merge_configs, render_config, Publication, PublicationRepository, PublicationSecret,
+    PublicationSnapshot, PublicationSnapshotRepository, SnapshotRepository, Source,
+    SourceExtraction, SourceId, SourceRepository, SubscriptionUserInfo,
 };
 
 use super::error::AppError;
@@ -99,8 +99,8 @@ impl ServePublicationHandler {
         }
 
         let source_ids: Vec<SourceId> = ordered.iter().map(|source| source.id().clone()).collect();
-        let snapshots = self.snapshots.list_by_sources(&source_ids).await?;
-        let generated = build_subscription(&publication, &ordered, &snapshots, command.format);
+        let extractions = self.snapshots.list_extractions(&source_ids).await?;
+        let generated = build_subscription(&publication, &ordered, &extractions, command.format);
         let snapshot = PublicationSnapshot::restore(
             publication.id().clone(),
             format.to_string(),
@@ -137,42 +137,34 @@ pub(super) async fn ordered_enabled_sources(
 pub(super) fn build_subscription(
     publication: &Publication,
     ordered: &[Source],
-    snapshots: &[SourceSnapshot],
+    extractions: &[SourceExtraction],
     format: SubscriptionFormat,
 ) -> GeneratedSubscription {
-    let bodies: HashMap<&SourceId, &SourceSnapshot> = snapshots
+    let by_source: HashMap<&SourceId, &SourceExtraction> = extractions
         .iter()
-        .map(|snapshot| (snapshot.source_id(), snapshot))
+        .map(|extraction| (&extraction.source_id, extraction))
         .collect();
 
-    let mut parsed = Vec::new();
+    let mut configs = Vec::new();
     let mut userinfo = SubscriptionUserInfo::default();
     for source in ordered {
-        let Some(snapshot) = bodies.get(source.id()) else {
+        let Some(extraction) = by_source.get(source.id()) else {
             continue;
         };
-        aggregate_userinfo(&mut userinfo, &snapshot.meta().userinfo);
-        let Ok(text) = std::str::from_utf8(snapshot.body()) else {
+        aggregate_userinfo(&mut userinfo, &extraction.userinfo);
+        if extraction.config.proxies.is_empty() {
+            tracing::debug!(
+                source_id = %source.id(),
+                "source snapshot has no extracted proxies"
+            );
             continue;
-        };
-        match parse_clash(text) {
-            Ok(result) if !result.is_empty() => parsed.push(result),
-            Ok(result) => tracing::debug!(
-                source_id = %source.id(),
-                skipped = result.skipped(),
-                "source snapshot has no supported proxies"
-            ),
-            Err(err) => tracing::debug!(
-                source_id = %source.id(),
-                error = %err,
-                "source snapshot is not a clash config"
-            ),
         }
+        configs.push(&extraction.config);
     }
 
-    let merged = merge(parsed.iter());
+    let merged = merge_configs(configs);
     let content = match format {
-        SubscriptionFormat::Clash => render(&merged),
+        SubscriptionFormat::Clash => render_config(&merged),
     };
     GeneratedSubscription {
         name: publication.name().value().to_string(),

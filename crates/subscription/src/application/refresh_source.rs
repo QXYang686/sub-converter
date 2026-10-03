@@ -186,7 +186,12 @@ impl RefreshSourceHandler {
                     meta,
                 );
                 self.snapshots.save(&snapshot).await?;
-                if !unchanged {
+                let needs_extraction = if unchanged {
+                    !self.snapshots.has_extraction(source_id).await?
+                } else {
+                    true
+                };
+                if needs_extraction {
                     self.snapshots
                         .replace_extraction(source_id, &extraction)
                         .await?;
@@ -197,7 +202,9 @@ impl RefreshSourceHandler {
             Ok(FetchOutcome::NotModified) => {
                 self.snapshots.touch(source_id, now).await?;
                 if let Some(previous) = previous.as_ref() {
-                    if previous.meta().body_hash.is_none() {
+                    let needs_backfill = previous.meta().body_hash.is_none()
+                        || !self.snapshots.has_extraction(source_id).await?;
+                    if needs_backfill {
                         self.backfill(source_id, previous, now).await?;
                         self.rebuild_publications(source_id).await;
                     }
@@ -220,7 +227,7 @@ impl RefreshSourceHandler {
         previous: &SourceSnapshot,
         now: i64,
     ) -> Result<(), AppError> {
-        if previous.meta().body_hash.is_some() || previous.body().is_empty() {
+        if previous.body().is_empty() {
             return Ok(());
         }
         let Ok(text) = std::str::from_utf8(previous.body()) else {

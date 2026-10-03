@@ -7,10 +7,10 @@ use futures::executor::block_on;
 use user::UserId;
 
 use crate::domain::{
-    body_hash, ExtractedConfig, Publication, PublicationId, PublicationRepository,
-    PublicationSnapshot, PublicationSnapshotRepository, RepositoryError, SnapshotMeta,
-    SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot, SourceUrl,
-    SubscriptionUserInfo,
+    body_hash, document as parse_document, ExtractedConfig, Publication, PublicationId,
+    PublicationRepository, PublicationSnapshot, PublicationSnapshotRepository, RepositoryError,
+    SnapshotMeta, SnapshotRepository, Source, SourceExtraction, SourceId, SourceRepository,
+    SourceSnapshot, SourceUrl, SubscriptionUserInfo,
 };
 
 use super::ports::{
@@ -123,6 +123,33 @@ impl SnapshotRepository for InMemorySnapshotRepository {
             .filter(|stored| !stored.body.is_empty() && source_ids.contains(&stored.source_id))
             .map(Self::to_snapshot)
             .collect())
+    }
+
+    async fn list_extractions(
+        &self,
+        source_ids: &[SourceId],
+    ) -> Result<Vec<SourceExtraction>, RepositoryError> {
+        let snapshots = self.store.snapshots.lock().unwrap();
+        let extracted = self.store.extracted.lock().unwrap();
+        let mut result = Vec::new();
+        for source_id in source_ids {
+            let Some(stored) = snapshots
+                .iter()
+                .find(|stored| &stored.source_id == source_id)
+            else {
+                continue;
+            };
+            result.push(SourceExtraction {
+                source_id: source_id.clone(),
+                userinfo: stored.meta.userinfo.clone(),
+                config: extracted.get(source_id).cloned().unwrap_or_default(),
+            });
+        }
+        Ok(result)
+    }
+
+    async fn has_extraction(&self, source_id: &SourceId) -> Result<bool, RepositoryError> {
+        Ok(self.store.extracted.lock().unwrap().contains_key(source_id))
     }
 
     async fn save(&self, snapshot: &SourceSnapshot) -> Result<(), RepositoryError> {
@@ -1207,6 +1234,26 @@ proxies:
     password: b-secret
 "#;
 
+const SNAPSHOT_C: &str = r#"
+mixed-port: 7890
+mode: rule
+dns:
+  enable: true
+proxies:
+  - name: C 节点
+    type: vmess
+    server: c.example.com
+    port: 443
+    uuid: cccccccc-cccc-cccc-cccc-cccccccccccc
+proxy-groups:
+  - name: 选择
+    type: select
+    proxies: [C 节点]
+rules:
+  - DOMAIN-SUFFIX,example.com,选择
+  - MATCH,选择
+"#;
+
 fn source_url(value: &str) -> SourceUrl {
     SourceUrl::new(value).unwrap()
 }
@@ -1215,10 +1262,20 @@ fn source_id_of(view: &SourceView) -> SourceId {
     SourceId::parse(&view.id).unwrap()
 }
 
+fn seed_extraction(fixture: &Fixture, source_id: &SourceId, body: &str) {
+    let document = parse_document(body).unwrap();
+    block_on(
+        fixture
+            .snapshots
+            .replace_extraction(source_id, &ExtractedConfig::from_value(&document)),
+    )
+    .unwrap();
+}
+
 fn seed_snapshot(fixture: &Fixture, source_id: &str, body: &str) {
     let source_id = SourceId::parse(source_id).unwrap();
     block_on(fixture.snapshots.save(&SourceSnapshot::restore(
-        source_id,
+        source_id.clone(),
         body.as_bytes().to_vec(),
         None,
         None,
@@ -1226,6 +1283,7 @@ fn seed_snapshot(fixture: &Fixture, source_id: &str, body: &str) {
         SnapshotMeta::default(),
     )))
     .unwrap();
+    seed_extraction(fixture, &source_id, body);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1249,7 +1307,7 @@ fn seed_snapshot_with_userinfo(
         ..SnapshotMeta::default()
     };
     block_on(fixture.snapshots.save(&SourceSnapshot::restore(
-        source_id,
+        source_id.clone(),
         body.as_bytes().to_vec(),
         None,
         None,
@@ -1257,6 +1315,7 @@ fn seed_snapshot_with_userinfo(
         meta,
     )))
     .unwrap();
+    seed_extraction(fixture, &source_id, body);
 }
 
 fn fetched_document(body: &str) -> FetchedDocument {
@@ -1634,6 +1693,8 @@ fn refresh_source_skips_extraction_when_body_unchanged() {
         },
     )))
     .unwrap();
+    seed_extraction(&fixture, &source_id, SNAPSHOT_A);
+    let replace_calls = fixture.snapshots.replace_calls();
 
     fixture.clock.set(2_000);
     fixture.fetcher.stub(&source.url, fetched(SNAPSHOT_A));
@@ -1644,12 +1705,46 @@ fn refresh_source_skips_extraction_when_body_unchanged() {
     )
     .unwrap();
     assert_eq!(status, RefreshStatus::Refreshed);
-    assert_eq!(fixture.snapshots.replace_calls(), 0);
+    assert_eq!(fixture.snapshots.replace_calls(), replace_calls);
 
     let stored = block_on(fixture.snapshots.find_by_source(&source_id))
         .unwrap()
         .unwrap();
     assert_eq!(stored.fetched_at(), 2_000);
+}
+
+#[test]
+fn refresh_source_reextracts_when_extraction_missing() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id.clone(),
+        SNAPSHOT_A.as_bytes().to_vec(),
+        None,
+        None,
+        1_000,
+        SnapshotMeta {
+            body_hash: Some(body_hash(SNAPSHOT_A.as_bytes())),
+            ..SnapshotMeta::default()
+        },
+    )))
+    .unwrap();
+
+    fixture.clock.set(2_000);
+    fixture.fetcher.stub(&source.url, fetched(SNAPSHOT_A));
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::Refreshed);
+    assert_eq!(fixture.snapshots.replace_calls(), 1);
+
+    let extraction = fixture.snapshots.extraction(&source_id).unwrap();
+    assert_eq!(extraction.proxy_count(), 2);
 }
 
 #[test]
@@ -1669,6 +1764,59 @@ fn serve_publication_keeps_all_protocols() {
     assert!(served.content.contains("A 节点"));
     assert!(served.content.contains("A SS"));
     assert!(served.content.contains("type: ss"));
+}
+
+#[test]
+fn serve_publication_keeps_rules_groups_and_settings() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &user_id, "合并", vec![source.id.clone()]);
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_C);
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    let document: serde_yaml::Value = serde_yaml::from_str(&served.content).unwrap();
+    let root = document.as_mapping().unwrap();
+    assert_eq!(root.get("mixed-port").unwrap().as_u64(), Some(7890));
+    assert_eq!(root.get("mode").unwrap().as_str(), Some("rule"));
+    assert_eq!(
+        root.get("dns")
+            .and_then(|dns| dns.as_mapping())
+            .and_then(|dns| dns.get("enable"))
+            .and_then(serde_yaml::Value::as_bool),
+        Some(true)
+    );
+    let group_names: Vec<&str> = root
+        .get("proxy-groups")
+        .unwrap()
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .map(|group| {
+            group
+                .as_mapping()
+                .unwrap()
+                .get("name")
+                .unwrap()
+                .as_str()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(group_names, vec!["PROXY", "选择"]);
+    let rules: Vec<&str> = root
+        .get("rules")
+        .unwrap()
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .map(|rule| rule.as_str().unwrap())
+        .collect();
+    assert_eq!(rules, vec!["DOMAIN-SUFFIX,example.com,选择", "MATCH,PROXY"]);
 }
 
 #[test]
@@ -1742,6 +1890,44 @@ fn refresh_source_backfills_extraction_on_not_modified() {
     assert!(stored.meta().body_hash.is_some());
     assert_eq!(stored.meta().proxy_count, 2);
     assert_eq!(stored.fetched_at(), 2_000);
+
+    let extraction = fixture.snapshots.extraction(&source_id).unwrap();
+    assert_eq!(extraction.proxy_count(), 2);
+}
+
+#[test]
+fn refresh_source_backfills_missing_extraction_on_not_modified() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let source_id = source_id_of(&source);
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id.clone(),
+        SNAPSHOT_A.as_bytes().to_vec(),
+        Some("etag-a".to_string()),
+        None,
+        1_000,
+        SnapshotMeta {
+            body_hash: Some(body_hash(SNAPSHOT_A.as_bytes())),
+            ..SnapshotMeta::default()
+        },
+    )))
+    .unwrap();
+    assert!(!block_on(fixture.snapshots.has_extraction(&source_id)).unwrap());
+
+    fixture.clock.set(2_000);
+    fixture
+        .fetcher
+        .stub(&source.url, Ok(FetchOutcome::NotModified));
+    let status = block_on(
+        fixture
+            .refresh_source()
+            .handle(&source_id, &source_url(&source.url)),
+    )
+    .unwrap();
+    assert_eq!(status, RefreshStatus::NotModified);
+    assert_eq!(fixture.snapshots.replace_calls(), 1);
+    assert!(block_on(fixture.snapshots.has_extraction(&source_id)).unwrap());
 
     let extraction = fixture.snapshots.extraction(&source_id).unwrap();
     assert_eq!(extraction.proxy_count(), 2);

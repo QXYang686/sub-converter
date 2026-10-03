@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,8 +7,8 @@ use worker::d1::{D1DatabaseSession, D1PreparedStatement, D1Type};
 use worker::send::SendFuture;
 
 use crate::domain::{
-    ExtractedConfig, RepositoryError, SnapshotMeta, SnapshotRepository, SourceId, SourceSnapshot,
-    SubscriptionUserInfo,
+    ExtractedConfig, ExtractedGroup, ExtractedProxy, RepositoryError, SnapshotMeta,
+    SnapshotRepository, SourceExtraction, SourceId, SourceSnapshot, SubscriptionUserInfo,
 };
 
 const SNAPSHOT_COLUMNS: &str = "source_id, body, etag, last_modified, fetched_at, body_hash, \
@@ -48,6 +48,46 @@ struct SnapshotRow {
     provider_name: Option<String>,
     provider_url: Option<String>,
     last_error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ExtractionMetaRow {
+    source_id: String,
+    userinfo_upload: Option<i64>,
+    userinfo_download: Option<i64>,
+    userinfo_total: Option<i64>,
+    userinfo_expire: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct ExtractionProxyRow {
+    source_id: String,
+    protocol: Option<String>,
+    name: Option<String>,
+    server: Option<String>,
+    port: Option<i64>,
+    options: String,
+}
+
+#[derive(Deserialize)]
+struct ExtractionGroupRow {
+    source_id: String,
+    name: Option<String>,
+    group_type: Option<String>,
+    proxies: String,
+    options: String,
+}
+
+#[derive(Deserialize)]
+struct ExtractionConfigRow {
+    source_id: String,
+    rules: String,
+    settings: String,
+}
+
+#[derive(Deserialize)]
+struct ExistsRow {
+    present: i64,
 }
 
 fn parse_protocol_counts(raw: Option<&str>) -> BTreeMap<String, u32> {
@@ -154,6 +194,142 @@ impl SnapshotRepository for D1SnapshotRepository {
                 .into_iter()
                 .map(row_to_snapshot)
                 .collect()
+        })
+        .await
+    }
+
+    async fn list_extractions(
+        &self,
+        source_ids: &[SourceId],
+    ) -> Result<Vec<SourceExtraction>, RepositoryError> {
+        if source_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<String> = source_ids.iter().map(ToString::to_string).collect();
+        let placeholders = (1..=ids.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        SendFuture::new(async move {
+            let bindings: Vec<D1Type> = ids.iter().map(|id| D1Type::Text(id)).collect();
+
+            let meta_rows = self
+                .db
+                .prepare(format!(
+                    "SELECT source_id, userinfo_upload, userinfo_download, userinfo_total, \
+                            userinfo_expire \
+                     FROM source_snapshots WHERE source_id IN ({placeholders})"
+                ))
+                .bind_refs(&bindings)?
+                .all()
+                .await?
+                .results::<ExtractionMetaRow>()?;
+            let proxy_rows = self
+                .db
+                .prepare(format!(
+                    "SELECT source_id, protocol, name, server, port, options \
+                     FROM source_proxies WHERE source_id IN ({placeholders}) \
+                     ORDER BY source_id, ordinal"
+                ))
+                .bind_refs(&bindings)?
+                .all()
+                .await?
+                .results::<ExtractionProxyRow>()?;
+            let group_rows = self
+                .db
+                .prepare(format!(
+                    "SELECT source_id, name, group_type, proxies, options \
+                     FROM source_proxy_groups WHERE source_id IN ({placeholders}) \
+                     ORDER BY source_id, ordinal"
+                ))
+                .bind_refs(&bindings)?
+                .all()
+                .await?
+                .results::<ExtractionGroupRow>()?;
+            let config_rows = self
+                .db
+                .prepare(format!(
+                    "SELECT source_id, rules, settings FROM source_config \
+                     WHERE source_id IN ({placeholders})"
+                ))
+                .bind_refs(&bindings)?
+                .all()
+                .await?
+                .results::<ExtractionConfigRow>()?;
+
+            let mut userinfo_by_source: HashMap<String, SubscriptionUserInfo> = meta_rows
+                .into_iter()
+                .map(|row| {
+                    (
+                        row.source_id,
+                        SubscriptionUserInfo {
+                            upload: row.userinfo_upload,
+                            download: row.userinfo_download,
+                            total: row.userinfo_total,
+                            expire: row.userinfo_expire,
+                        },
+                    )
+                })
+                .collect();
+            let mut configs_by_source: HashMap<String, ExtractedConfig> = HashMap::new();
+            for row in proxy_rows {
+                configs_by_source
+                    .entry(row.source_id)
+                    .or_default()
+                    .proxies
+                    .push(ExtractedProxy {
+                        protocol: row.protocol,
+                        name: row.name,
+                        server: row.server,
+                        port: row.port.and_then(|port| u16::try_from(port).ok()),
+                        options_json: row.options,
+                    });
+            }
+            for row in group_rows {
+                configs_by_source
+                    .entry(row.source_id)
+                    .or_default()
+                    .groups
+                    .push(ExtractedGroup {
+                        name: row.name,
+                        group_type: row.group_type,
+                        proxies_json: row.proxies,
+                        options_json: row.options,
+                    });
+            }
+            for row in config_rows {
+                let config = configs_by_source.entry(row.source_id).or_default();
+                config.rules = serde_json::from_str(&row.rules).unwrap_or_default();
+                config.settings = serde_json::from_str(&row.settings).unwrap_or_default();
+            }
+
+            let mut extractions = Vec::with_capacity(ids.len());
+            for id in ids {
+                let source_id = SourceId::parse(&id)
+                    .map_err(|err| RepositoryError::Unavailable(err.to_string()))?;
+                extractions.push(SourceExtraction {
+                    source_id,
+                    userinfo: userinfo_by_source.remove(&id).unwrap_or_default(),
+                    config: configs_by_source.remove(&id).unwrap_or_default(),
+                });
+            }
+            Ok(extractions)
+        })
+        .await
+    }
+
+    async fn has_extraction(&self, source_id: &SourceId) -> Result<bool, RepositoryError> {
+        let source_id = source_id.to_string();
+        SendFuture::new(async move {
+            let row = self
+                .db
+                .prepare(
+                    "SELECT EXISTS(SELECT 1 FROM source_config WHERE source_id = ?1) AS present",
+                )
+                .bind_refs(&[D1Type::Text(&source_id)])?
+                .first::<ExistsRow>(None)
+                .await?;
+            Ok(row.is_some_and(|row| row.present != 0))
         })
         .await
     }

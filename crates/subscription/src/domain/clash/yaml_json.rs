@@ -35,6 +35,33 @@ pub(crate) fn yaml_to_json(value: &Value) -> JsonValue {
     }
 }
 
+pub(crate) fn json_to_yaml(value: &JsonValue) -> Value {
+    match value {
+        JsonValue::Null => Value::Null,
+        JsonValue::Bool(value) => Value::Bool(*value),
+        JsonValue::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Value::Number(value.into())
+            } else if let Some(value) = value.as_u64() {
+                Value::Number(value.into())
+            } else {
+                value
+                    .as_f64()
+                    .map(|value| Value::Number(value.into()))
+                    .unwrap_or(Value::Null)
+            }
+        }
+        JsonValue::String(value) => Value::String(value.clone()),
+        JsonValue::Array(sequence) => Value::Sequence(sequence.iter().map(json_to_yaml).collect()),
+        JsonValue::Object(object) => Value::Mapping(
+            object
+                .iter()
+                .map(|(key, value)| (Value::String(key.clone()), json_to_yaml(value)))
+                .collect(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,5 +78,15 @@ mod tests {
         assert_eq!(json["name"], "香港");
         assert_eq!(json["alpn"][0], "h2");
         assert_eq!(json["ws-opts"]["path"], "/ws");
+    }
+
+    #[test]
+    fn yaml_to_json_round_trips_through_json_to_yaml() {
+        let yaml: Value = serde_yaml::from_str(
+            "name: 香港 01\nport: 443\ntls: true\nalpn: [h2, http/1.1]\nws-opts:\n  path: /ws\n",
+        )
+        .unwrap();
+        let round_tripped = json_to_yaml(&yaml_to_json(&yaml));
+        assert_eq!(round_tripped, yaml);
     }
 }

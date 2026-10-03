@@ -3,7 +3,7 @@ use user::UserId;
 
 use super::{
     ExtractedConfig, Publication, PublicationId, PublicationSecret, PublicationSnapshot,
-    RepositoryError, Source, SourceId, SourceSnapshot,
+    RepositoryError, Source, SourceExtraction, SourceId, SourceSnapshot,
 };
 
 #[async_trait]
@@ -61,6 +61,13 @@ pub trait SnapshotRepository: Send + Sync {
         &self,
         source_ids: &[SourceId],
     ) -> Result<Vec<SourceSnapshot>, RepositoryError>;
+
+    async fn list_extractions(
+        &self,
+        source_ids: &[SourceId],
+    ) -> Result<Vec<SourceExtraction>, RepositoryError>;
+
+    async fn has_extraction(&self, source_id: &SourceId) -> Result<bool, RepositoryError>;
 
     async fn save(&self, snapshot: &SourceSnapshot) -> Result<(), RepositoryError>;
 

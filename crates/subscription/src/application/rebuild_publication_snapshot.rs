@@ -35,10 +35,10 @@ impl RebuildPublicationSnapshotHandler {
     pub async fn handle(&self, publication: &Publication) -> Result<(), AppError> {
         let ordered = ordered_enabled_sources(self.sources.as_ref(), publication).await?;
         let source_ids: Vec<_> = ordered.iter().map(|source| source.id().clone()).collect();
-        let snapshots = self.snapshots.list_by_sources(&source_ids).await?;
+        let extractions = self.snapshots.list_extractions(&source_ids).await?;
 
         let format = SubscriptionFormat::Clash;
-        let generated = build_subscription(publication, &ordered, &snapshots, format);
+        let generated = build_subscription(publication, &ordered, &extractions, format);
         let snapshot = PublicationSnapshot::restore(
             publication.id().clone(),
             format.as_str().to_string(),

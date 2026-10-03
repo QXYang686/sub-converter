@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::SourceId;
-use crate::domain::SubscriptionUserInfo;
+use crate::domain::{ExtractedConfig, SubscriptionUserInfo};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SnapshotMeta {
@@ -15,6 +15,13 @@ pub struct SnapshotMeta {
     pub provider_name: Option<String>,
     pub provider_url: Option<String>,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceExtraction {
+    pub source_id: SourceId,
+    pub userinfo: SubscriptionUserInfo,
+    pub config: ExtractedConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

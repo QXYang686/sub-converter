@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::{DomainError, SubscriptionName};
 
-pub use snapshot::{body_hash, SnapshotMeta, SourceSnapshot};
+pub use snapshot::{body_hash, SnapshotMeta, SourceExtraction, SourceSnapshot};
 
 pub const SOURCE_URL_MAX_LEN: usize = 2048;
 
