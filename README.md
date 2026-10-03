@@ -47,6 +47,10 @@ npx wrangler deploy --dry-run --env production             # 本地验证生产�
 | GET/POST | `/api/subscriptions/publications` | 发布订阅列表 / 新建（生成 secret 并绑定源） |
 | GET/PATCH/DELETE | `/api/subscriptions/publications/{id}` | 发布订阅详情 / 修改（含 expiresAt）/ 删除 |
 | PUT | `/api/subscriptions/publications/{id}/sources` | 整体设置有序订阅源组成 |
+| GET/POST | `/api/rule-sets` | 规则集列表 / 新建（`remote`/`inline`/`local`，格式中性） |
+| GET/PATCH/DELETE | `/api/rule-sets/{id}` | 规则集详情 / 修改 / 删除 |
+| POST | `/api/rule-sets/{id}/refresh` | 远程规则集立即条件抓取，返回 `refreshed`/`notModified`/`skipped`/`failed` |
+| GET/PUT/PATCH | `/api/rule-sets/{id}/content` | 读原文 / 覆盖内容并钉住 / 切换 `pinned` |
 | GET | `/s/{secret}?target=clash` | 公开订阅分发（无需鉴权），直接返回物化渲染快照（全协议）；无缓存时内联构建，未知/禁用/过期 404 |
 
 refresh token 走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，JS 不可读；refresh/logout 需带 `X-Requested-With: XMLHttpRequest`。错误统一为 `{"error":{"code","message"}}`（422 校验、409 冲突、401 凭证/令牌、403 CSRF、404 不存在）。

@@ -9,6 +9,7 @@ Cloudflare Workers 上的单体应用：Rust（worker-rs + axum）API + Leptos C
 | [`crates/user`](../crates/user/src/lib.rs) | 用户上下文：账号身份锚点 | `User`、`UserId`、`Username`、`UserRepository` |
 | [`crates/auth`](../crates/auth/src/lib.rs) | 认证上下文：登录方式与凭证、会话 | `Credential`（Password \| Passkey）、`Challenge`、JWT/refresh token、WebAuthn 验签 |
 | [`crates/subscription`](../crates/subscription/src/lib.rs) | 订阅上下文：两类订阅与拉取转换分发 | `Source`、`Publication`、`SourceSnapshot`、Clash 解析/合并/渲染 |
+| [`crates/rule-set`](../crates/rule-set/src/lib.rs) | 规则集上下文：用户自建具名规则集 | `RuleSet`、`RuleSetContent`（格式中性的来源/分类/内容） |
 | [`crates/contract`](../crates/contract/src/lib.rs) | 前后端共享契约（发布语言） | 请求/响应 DTO、输入约束常量 |
 | `crates/api` | 组合根：路由、错误映射、依赖注入、跨上下文编排 | axum handlers、`AppState`、worker 入口 |
 | `crates/web` | Leptos CSR 表现层 | 页面、组件、passkey JS 桥、AuthStore |
@@ -22,14 +23,16 @@ Cloudflare Workers 上的单体应用：Rust（worker-rs + axum）API + Leptos C
             ↑                ↑          │
             └──────────── web│          ▼
                          user ←──── auth
-                           ↑
-                      subscription
+                          ↑
+                 ┌────────┴────────┐
+            subscription        rule_set
 ```
 
 - `auth → user` 单向：认证上下文只使用 `UserId`/`Username`/`UserRepository`，用户上下文不知道认证的存在
 - `subscription → user` 单向：订阅上下文只使用 `UserId`，不依赖 auth
-- `web` 只依赖 `contract`，不接触 user/auth/subscription
-- 跨上下文流程（注册、`/me`）由 `api` 编排，不在上下文之间互相调用
+- `rule_set → user` 单向：规则集上下文只使用 `UserId`，与 subscription 零依赖
+- `web` 只依赖 `contract`，不接触 user/auth/subscription/rule_set
+- 跨上下文流程（注册、`/me`）由 `api` 编排，不在上下文之间互相调用；规则集与发布订阅的集成也由 `api` 编排（尚未实现，见 ADR 0014）
 - `contract` 不依赖任何业务 crate
 
 ## 目录
@@ -47,7 +50,11 @@ crates/
 │   ├── domain/            # Source/Publication/SourceSnapshot、Clash 解析合并渲染
 │   ├── application/       # 管理用例 + RefreshSource/ServePublication、ports
 │   └── infrastructure/    # D1 仓储、HttpFetcher、wait_until 后台任务（cfg(wasm32)）
-├── contract/src/          # auth / passkey / user DTO + 约束常量
+├── rule-set/src/
+│   ├── domain/            # RuleSet/RuleSetContent（中性来源/分类/格式）、仓储 trait
+│   ├── application/       # 规则集 CRUD、内容读写、RefreshRuleSet、ports
+│   └── infrastructure/    # D1 仓储、HttpFetcher、SystemClock（cfg(wasm32)）
+├── contract/src/          # auth / passkey / user / subscription / rule_set DTO + 约束常量
 ├── api/src/
 │   ├── http/              # routes、handlers、dto 映射、错误、cookie、AppState
 │   └── worker_entry.rs    # #[event(fetch)] 组装依赖
@@ -67,6 +74,8 @@ crates/
 | `source_proxies` / `source_proxy_groups` | 从快照提取的节点与分组，逐行存储，`options` 为完整原始字段 JSON |
 | `source_config` | 从快照提取的规则数组与顶层设置（dns/tun/hosts/rule-providers 等）JSON |
 | `publication_snapshots` | 每个发布订阅物化的渲染结果（`publication_id + format`）、聚合流量与生成时间，公开分发直接查表 |
+| `rule_sets` | 用户自建规则集：来源 kind/url/path、分类、内容格式、间隔、启用状态；(user_id, name) 唯一 |
+| `rule_set_contents` | 每个规则集的当前内容（BLOB）与抓取元数据（ETag/Last-Modified、哈希、规则数、最近错误、pinned） |
 
 迁移文件在 `migrations/`，操作规范见 [runbook](runbook.md)。
 
@@ -81,6 +90,7 @@ D1 访问策略：每请求创建一个 `first-primary` 的 D1 Session 并由全
 - **会话**：access token 15 分钟只存内存；refresh token 30 天走 `HttpOnly; Secure; SameSite=Strict; Path=/api/auth` cookie，D1 存哈希，刷新轮换，重放检测吊销整族
 - **拉取**：源变更或公开拉取时经 `wait_until` 异步抓取（固定 FlClash UA，条件请求，租约去重），原始响应体与订阅响应头存 `source_snapshots`，并提取全部协议节点、分组、规则与顶层设置；body 哈希未变只更新元数据，失败保留旧快照与旧提取数据并记录错误；提取缺失时在 200 未变或 304 路径补写
 - **转换与分发**：`GET /s/{secret}` 校验启用/过期后直接读 `publication_snapshots` 返回渲染结果；源刷新成功会重建绑定该源的所有发布订阅快照，管理变更（源 URL/启用/删除、发布组合）即时失效缓存，未命中时从提取数据合成一次（含分组、规则与设置）。详见 [ADR 0009](decisions/0009-pull-convert-serve.md)、[ADR 0010](decisions/0010-extract-subscription-content.md)、[ADR 0011](decisions/0011-publication-render-snapshots.md) 与 [ADR 0012](decisions/0012-merge-extracted-config-into-publication.md)
+- **规则集**：用户自建具名规则集（`Remote` 同步条件抓取、`Inline` 自写内容、`Local` 仅表示）；远程刷新失败保留旧内容并记错，`pinned` 时不被覆盖。本期不做格式渲染、也尚未接入发布订阅，详见 [ADR 0014](decisions/0014-rule-set-context.md)
 
 ## 配置分层
 
