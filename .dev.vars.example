@@ -1,1 +1,5 @@
+# 本地开发覆盖项（.dev.vars 已被 gitignore，复制本文件为 .dev.vars）
 JWT_SECRET=replace-with-a-long-random-secret
+# 覆盖 wrangler.toml [vars] 中的线上 dev 值，本地访问 origin 为 localhost
+WEBAUTHN_RP_ID=localhost
+WEBAUTHN_ORIGINS=http://localhost:8080

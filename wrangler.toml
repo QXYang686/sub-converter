@@ -1,4 +1,5 @@
-name = "sub-converter"
+# 顶层默认节 = dev 环境（本地与线上 dev 共用）
+name = "sub-converter-dev"
 main = "crates/api/build/index.js"
 compatibility_date = "2026-10-02"
 
@@ -11,9 +12,10 @@ not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/s/*"]
 
 [vars]
-WEBAUTHN_RP_ID = "localhost"
-WEBAUTHN_ORIGINS = "http://localhost:8080"
-LOG_LEVEL = "debug"
+# 线上 dev 的取值；本地用 .dev.vars 覆盖为 localhost
+WEBAUTHN_RP_ID = "sub-converter-dev.yqxpro.workers.dev"
+WEBAUTHN_ORIGINS = "https://sub-converter-dev.yqxpro.workers.dev"
+LOG_LEVEL = "info"
 
 [observability]
 enabled = true
@@ -58,27 +60,3 @@ database_id = "8a4ff7ef-fcff-4594-830c-da5604ec8c73"
 [[env.production.routes]]
 pattern = "sub.yqxpro.com"
 custom_domain = true
-
-[env.staging]
-name = "sub-converter-staging"
-
-[env.staging.vars]
-WEBAUTHN_RP_ID = "sub-converter-staging.yqxpro.workers.dev"
-WEBAUTHN_ORIGINS = "https://sub-converter-staging.yqxpro.workers.dev"
-LOG_LEVEL = "info"
-
-[env.staging.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.staging.observability.traces]
-enabled = true
-head_sampling_rate = 1
-
-[env.staging.placement]
-mode = "smart"
-
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "sub-converter-db-dev"
-database_id = "4b68349b-cb37-461d-9fa3-90bf4e87f2c0"
