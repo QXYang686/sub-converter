@@ -8,11 +8,15 @@ use contract::passkey::{
     PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions, RelyingParty,
     UserEntity,
 };
+use contract::rule_set::{
+    RuleSetContentSummaryResponse, RuleSetResponse,
+};
 use contract::subscription::{
     ProtocolCountResponse, PublicationResponse, RuleProviderResponse, SourceResponse,
     SourceSnapshotResponse,
 };
 use contract::user::UserResponse;
+use rule_set::application::{RuleSetContentSummary, RuleSetView};
 use subscription::application::{
     PublicationView, RuleProviderView, SourceSnapshotView, SourceView,
 };
@@ -74,6 +78,35 @@ pub fn rule_provider_response(view: RuleProviderView) -> RuleProviderResponse {
         fetched_at: view.fetched_at,
         has_snapshot: view.has_snapshot,
         last_error: view.last_error,
+    }
+}
+
+pub fn rule_set_response(view: RuleSetView) -> RuleSetResponse {
+    RuleSetResponse {
+        id: view.id,
+        name: view.name,
+        source_kind: view.source_kind,
+        url: view.url,
+        path: view.path,
+        category: view.category,
+        content_format: view.content_format,
+        interval: view.interval,
+        enabled: view.enabled,
+        created_at: view.created_at,
+        updated_at: view.updated_at,
+        content: view.content.map(rule_set_content_summary),
+    }
+}
+
+fn rule_set_content_summary(view: RuleSetContentSummary) -> RuleSetContentSummaryResponse {
+    RuleSetContentSummaryResponse {
+        has_content: view.has_content,
+        byte_size: view.byte_size,
+        rule_count: view.rule_count,
+        fetched_at: view.fetched_at,
+        body_hash: view.body_hash,
+        last_error: view.last_error,
+        pinned: view.pinned,
     }
 }
 

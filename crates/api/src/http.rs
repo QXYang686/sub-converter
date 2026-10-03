@@ -75,6 +75,26 @@ pub fn router(state: AppState) -> Router {
             "/api/subscriptions/publications/{id}/sources",
             put(handlers::set_publication_sources),
         )
+        .route(
+            "/api/rule-sets",
+            get(handlers::list_rule_sets).post(handlers::create_rule_set),
+        )
+        .route(
+            "/api/rule-sets/{id}",
+            get(handlers::get_rule_set)
+                .patch(handlers::update_rule_set)
+                .delete(handlers::delete_rule_set),
+        )
+        .route(
+            "/api/rule-sets/{id}/refresh",
+            post(handlers::refresh_rule_set),
+        )
+        .route(
+            "/api/rule-sets/{id}/content",
+            get(handlers::get_rule_set_content)
+                .put(handlers::replace_rule_set_content)
+                .patch(handlers::set_rule_set_pinned),
+        )
         .route("/s/{secret}", get(handlers::public_subscription))
         .layer(axum::middleware::from_fn(trace::trace_request))
         .with_state(state)

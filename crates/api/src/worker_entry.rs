@@ -9,6 +9,9 @@ use auth::infrastructure::persistence::{
 use auth::infrastructure::security::{
     JwtTokenService, OsRandomSource, Pbkdf2PasswordHasher, RustWebAuthnVerifier, SystemClock,
 };
+use rule_set::infrastructure::fetch::HttpFetcher as RuleSetHttpFetcher;
+use rule_set::infrastructure::persistence::D1RuleSetRepository;
+use rule_set::infrastructure::security::SystemClock as RuleSetSystemClock;
 use subscription::infrastructure::fetch::HttpFetcher;
 use subscription::infrastructure::persistence::{
     D1PublicationRepository, D1PublicationSnapshotRepository, D1RuleProviderRepository,
@@ -64,6 +67,9 @@ async fn fetch(
         publications: Arc::new(D1PublicationRepository::new(session.clone())),
         snapshots: Arc::new(D1SnapshotRepository::new(session.clone())),
         rule_providers: Arc::new(D1RuleProviderRepository::new(session.clone())),
+        rule_sets: Arc::new(D1RuleSetRepository::new(session.clone())),
+        rule_set_fetcher: Arc::new(RuleSetHttpFetcher),
+        rule_set_clock: Arc::new(RuleSetSystemClock),
         publication_snapshots: Arc::new(D1PublicationSnapshotRepository::new(session.clone())),
         fetcher: Arc::new(HttpFetcher),
         background: Arc::new(WorkerBackgroundTasks::new(ctx)),

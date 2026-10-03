@@ -4,6 +4,10 @@ use auth::application::{
     Clock, PasswordHasher, RefreshTokenRepository, TokenService, WebAuthnVerifier,
 };
 use auth::domain::{ChallengeRepository, CredentialRepository};
+use rule_set::application::{
+    Clock as RuleSetClock, Fetcher as RuleSetFetcher,
+};
+use rule_set::RuleSetRepository;
 use subscription::application::{
     BackgroundTasks, Clock as SubscriptionClock, Fetcher, SecretGenerator,
 };
@@ -28,6 +32,9 @@ pub struct AppState {
     pub publications: Arc<dyn PublicationRepository>,
     pub snapshots: Arc<dyn SnapshotRepository>,
     pub rule_providers: Arc<dyn RuleProviderRepository>,
+    pub rule_sets: Arc<dyn RuleSetRepository>,
+    pub rule_set_fetcher: Arc<dyn RuleSetFetcher>,
+    pub rule_set_clock: Arc<dyn RuleSetClock>,
     pub publication_snapshots: Arc<dyn PublicationSnapshotRepository>,
     pub fetcher: Arc<dyn Fetcher>,
     pub background: Arc<dyn BackgroundTasks>,

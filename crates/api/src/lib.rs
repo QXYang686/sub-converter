@@ -38,5 +38,22 @@ mod tests {
             contract::PUBLICATION_MAX_SOURCES,
             subscription::PUBLICATION_MAX_SOURCES
         );
+        assert_eq!(
+            contract::RULE_SET_NAME_MIN_LEN,
+            rule_set::RULE_SET_NAME_MIN_LEN
+        );
+        assert_eq!(
+            contract::RULE_SET_NAME_MAX_LEN,
+            rule_set::RULE_SET_NAME_MAX_LEN
+        );
+        assert_eq!(contract::RULE_SET_URL_MAX_LEN, rule_set::RULE_SET_URL_MAX_LEN);
+        assert_eq!(
+            contract::RULE_SET_PATH_MAX_LEN,
+            rule_set::RULE_SET_PATH_MAX_LEN
+        );
+        assert_eq!(
+            contract::RULE_SET_INTERVAL_MAX_SECS,
+            rule_set::RULE_SET_INTERVAL_MAX_SECS
+        );
     }
 }

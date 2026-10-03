@@ -1926,6 +1926,7 @@ dependencies = [
  "futures",
  "sub-converter-auth",
  "sub-converter-contract",
+ "sub-converter-rule-set",
  "sub-converter-subscription",
  "sub-converter-user",
  "tower",

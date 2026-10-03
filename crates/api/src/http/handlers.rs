@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
@@ -22,11 +23,22 @@ use contract::passkey::{
     PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions,
     RegisterPasskeyFinishRequest,
 };
+use contract::rule_set::{
+    CreateRuleSetRequest, RefreshRuleSetResponse, RuleSetResponse, SetRuleSetPinnedRequest,
+    UpdateRuleSetRequest,
+};
 use contract::subscription::{
     CreatePublicationRequest, CreateSourceRequest, PublicationResponse, RuleProviderResponse,
     SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
 };
 use contract::user::UserResponse;
+use rule_set::application::{
+    CreateRuleSetCommand, CreateRuleSetHandler, DeleteRuleSetCommand, DeleteRuleSetHandler,
+    GetRuleSetCommand, GetRuleSetContentCommand, GetRuleSetContentHandler, GetRuleSetHandler,
+    ListRuleSetsHandler, RefreshRuleSetCommand, RefreshRuleSetHandler,
+    ReplaceRuleSetContentCommand, ReplaceRuleSetContentHandler, SetRuleSetPinnedCommand,
+    SetRuleSetPinnedHandler, UpdateRuleSetCommand, UpdateRuleSetHandler,
+};
 use subscription::application::{
     CreatePublicationCommand, CreatePublicationHandler, CreateSourceCommand, CreateSourceHandler,
     DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand, DeleteSourceHandler,
@@ -43,7 +55,7 @@ use user::UserId;
 
 use super::dto::{
     auth_response, creation_options, passkey_response, publication_response, refresh_auth_response,
-    request_options, rule_provider_response, source_response, user_response,
+    request_options, rule_provider_response, rule_set_response, source_response, user_response,
 };
 use super::error::ApiError;
 use super::session;
@@ -832,6 +844,196 @@ fn content_disposition(name: &str) -> String {
         })
         .collect();
     format!("attachment; filename=\"{fallback}.yaml\"; filename*=UTF-8''{encoded}.yaml")
+}
+
+fn bytes_response(body: Vec<u8>) -> Response {
+    let content_type = if std::str::from_utf8(&body).is_ok() {
+        "text/plain; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    };
+    let mut response = (StatusCode::OK, body).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+pub async fn list_rule_sets(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RuleSetResponse>>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let handler = ListRuleSetsHandler::new(state.rule_sets.clone());
+    let views = handler.handle(user_id).await?;
+    Ok(Json(views.into_iter().map(rule_set_response).collect()))
+}
+
+pub async fn create_rule_set(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: JsonPayload<CreateRuleSetRequest>,
+) -> Result<(StatusCode, Json<RuleSetResponse>), ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler = CreateRuleSetHandler::new(
+        state.rule_sets.clone(),
+        state.rule_set_fetcher.clone(),
+        state.rule_set_clock.clone(),
+    );
+    let view = handler
+        .handle(CreateRuleSetCommand {
+            user_id,
+            name: request.name,
+            source_kind: request.source_kind,
+            url: request.url,
+            path: request.path,
+            category: request.category,
+            content_format: request.content_format,
+            interval: request.interval,
+            content: request.content,
+        })
+        .await?;
+    Ok((StatusCode::CREATED, Json(rule_set_response(view))))
+}
+
+pub async fn get_rule_set(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<RuleSetResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let handler = GetRuleSetHandler::new(state.rule_sets.clone());
+    let view = handler
+        .handle(GetRuleSetCommand { user_id, id })
+        .await?;
+    Ok(Json(rule_set_response(view)))
+}
+
+pub async fn update_rule_set(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    payload: JsonPayload<UpdateRuleSetRequest>,
+) -> Result<Json<RuleSetResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+
+    let handler = UpdateRuleSetHandler::new(
+        state.rule_sets.clone(),
+        state.rule_set_fetcher.clone(),
+        state.rule_set_clock.clone(),
+    );
+    let view = handler
+        .handle(UpdateRuleSetCommand {
+            user_id,
+            id,
+            name: request.name,
+            url: request.url,
+            path: request.path,
+            category: request.category,
+            content_format: request.content_format,
+            interval: request.interval,
+            enabled: request.enabled,
+        })
+        .await?;
+    Ok(Json(rule_set_response(view)))
+}
+
+pub async fn delete_rule_set(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let handler = DeleteRuleSetHandler::new(state.rule_sets.clone());
+    handler
+        .handle(DeleteRuleSetCommand { user_id, id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn refresh_rule_set(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<RefreshRuleSetResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let handler = RefreshRuleSetHandler::new(
+        state.rule_sets.clone(),
+        state.rule_set_fetcher.clone(),
+        state.rule_set_clock.clone(),
+    );
+    let status = handler
+        .handle(RefreshRuleSetCommand { user_id, id })
+        .await?;
+    Ok(Json(RefreshRuleSetResponse {
+        status: status.as_str().to_string(),
+    }))
+}
+
+pub async fn get_rule_set_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let handler = GetRuleSetContentHandler::new(state.rule_sets.clone());
+    let body = handler
+        .handle(GetRuleSetContentCommand { user_id, id })
+        .await?;
+    Ok(bytes_response(body))
+}
+
+pub async fn replace_rule_set_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Result<Json<RuleSetResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let handler = ReplaceRuleSetContentHandler::new(
+        state.rule_sets.clone(),
+        state.rule_set_clock.clone(),
+    );
+    let view = handler
+        .handle(ReplaceRuleSetContentCommand {
+            user_id,
+            id,
+            body: body.to_vec(),
+            pin: true,
+        })
+        .await?;
+    Ok(Json(rule_set_response(view)))
+}
+
+pub async fn set_rule_set_pinned(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    payload: JsonPayload<SetRuleSetPinnedRequest>,
+) -> Result<Json<RuleSetResponse>, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+    let Json(request) = payload.map_err(json_rejection)?;
+    let handler = SetRuleSetPinnedHandler::new(state.rule_sets.clone());
+    let view = handler
+        .handle(SetRuleSetPinnedCommand {
+            user_id,
+            id,
+            pinned: request.pinned,
+        })
+        .await?;
+    Ok(Json(rule_set_response(view)))
 }
 
 #[cfg(test)]

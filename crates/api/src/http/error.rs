@@ -4,6 +4,7 @@ use axum::Json;
 use contract::auth::{ErrorBody, ErrorResponse};
 
 use auth::application::{AppError, PortError};
+use rule_set::application::AppError as RuleSetError;
 use subscription::application::AppError as SubscriptionError;
 
 #[derive(Debug)]
@@ -112,6 +113,31 @@ impl From<SubscriptionError> for ApiError {
             SubscriptionError::Repository(error) => ApiError::Internal(error.to_string()),
             SubscriptionError::Port(error) => ApiError::Internal(error.to_string()),
             SubscriptionError::Internal(message) => ApiError::Internal(message),
+        }
+    }
+}
+
+impl From<RuleSetError> for ApiError {
+    fn from(err: RuleSetError) -> Self {
+        match err {
+            RuleSetError::InvalidId
+            | RuleSetError::InvalidName
+            | RuleSetError::InvalidUrl
+            | RuleSetError::InvalidPath
+            | RuleSetError::InvalidInterval
+            | RuleSetError::InvalidCategory
+            | RuleSetError::InvalidContentFormat
+            | RuleSetError::InvalidSourceKind
+            | RuleSetError::MissingContent
+            | RuleSetError::NotRemote
+            | RuleSetError::ContentNotEditable => ApiError::Validation(err.to_string()),
+            RuleSetError::NameTaken => {
+                ApiError::Conflict("RULE_SET_NAME_TAKEN", err.to_string())
+            }
+            RuleSetError::NotFound => ApiError::NotFound,
+            RuleSetError::Repository(error) => ApiError::Internal(error.to_string()),
+            RuleSetError::Fetch(error) => ApiError::Internal(error.to_string()),
+            RuleSetError::Internal(message) => ApiError::Internal(message),
         }
     }
 }
