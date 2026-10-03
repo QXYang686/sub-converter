@@ -5,7 +5,7 @@ use leptos::task::spawn_local;
 use contract::subscription::{SourceResponse, UpdateSourceRequest};
 
 use crate::api::user_message;
-use crate::components::{Alert, RequireAuth, Spinner, TextField};
+use crate::components::{Alert, CodeBlock, RequireAuth, Spinner, TextField};
 use crate::forms::validate_source;
 use crate::state::{AuthStatus, AuthStore};
 
@@ -17,6 +17,8 @@ pub fn SourcesPage() -> impl IntoView {
     let error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
     let reload = RwSignal::new(0u32);
+    let viewing = RwSignal::new(None::<String>);
+    let view_content = RwSignal::new(None::<String>);
 
     let list_store = store.clone();
     Effect::new(move |_| {
@@ -134,6 +136,29 @@ pub fn SourcesPage() -> impl IntoView {
         edit_url.set(source.url);
     };
 
+    let view_store = store.clone();
+    let on_view = move |source: SourceResponse| {
+        let id = source.id.clone();
+        if viewing.get() == Some(id.clone()) {
+            viewing.set(None);
+            view_content.set(None);
+            return;
+        }
+        viewing.set(Some(id.clone()));
+        view_content.set(None);
+        error.set(None);
+        let store = view_store.clone();
+        spawn_local(async move {
+            match store.source_config(&id).await {
+                Ok(text) => view_content.set(Some(text)),
+                Err(err) => {
+                    viewing.set(None);
+                    error.set(Some(user_message(&err)));
+                }
+            }
+        });
+    };
+
     view! {
         <RequireAuth>
             <div class="space-y-6">
@@ -208,6 +233,10 @@ pub fn SourcesPage() -> impl IntoView {
                 let toggle_source = source.clone();
                 let edit_source = source.clone();
                 let delete_id = id.clone();
+                let view_source = source.clone();
+                let view_label_id = id.clone();
+                let view_show_id = id.clone();
+                let on_view = on_view.clone();
                 let enabled = source.enabled;
                 let snapshot = source.snapshot.clone();
                 let traffic = snapshot.as_ref().and_then(|snap| {
@@ -322,6 +351,20 @@ pub fn SourcesPage() -> impl IntoView {
                             <button
                                 type="button"
                                 disabled=move || busy.get()
+                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
+                                on:click=move |_| on_view(view_source.clone())
+                            >
+                                {move || {
+                                    if viewing.get() == Some(view_label_id.clone()) {
+                                        "收起"
+                                    } else {
+                                        "查看配置"
+                                    }
+                                }}
+                            </button>
+                            <button
+                                type="button"
+                                disabled=move || busy.get()
                                 class="text-red-300 transition hover:text-red-200 disabled:opacity-50"
                                 on:click=move |_| on_delete(delete_id.clone())
                             >
@@ -329,6 +372,12 @@ pub fn SourcesPage() -> impl IntoView {
                             </button>
                         </div>
                     </div>
+                    <Show when=move || viewing.get() == Some(view_show_id.clone())>
+                        {move || match view_content.get() {
+                            Some(text) => view! { <CodeBlock content=text/> }.into_any(),
+                            None => view! { <Spinner/> }.into_any(),
+                        }}
+                    </Show>
                 }
                     .into_any()
             };

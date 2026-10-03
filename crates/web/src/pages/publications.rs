@@ -6,7 +6,7 @@ use contract::subscription::{PublicationResponse, SourceResponse, UpdatePublicat
 
 use crate::api::user_message;
 use crate::clipboard;
-use crate::components::{Alert, RequireAuth, Spinner, TextField};
+use crate::components::{Alert, CodeBlock, RequireAuth, Spinner, TextField};
 use crate::forms::validate_publication_name;
 use crate::state::{AuthStatus, AuthStore};
 
@@ -74,6 +74,8 @@ pub fn PublicationsPage() -> impl IntoView {
     let notice = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
     let reload = RwSignal::new(0u32);
+    let viewing = RwSignal::new(None::<String>);
+    let view_content = RwSignal::new(None::<String>);
 
     let list_store = store.clone();
     Effect::new(move |_| {
@@ -174,6 +176,29 @@ pub fn PublicationsPage() -> impl IntoView {
         edit_enabled.set(publication.enabled);
         edit_selected.set(publication.source_ids.clone());
         editing.set(Some(publication));
+    };
+
+    let view_store = store.clone();
+    let on_view = move |publication: PublicationResponse| {
+        let id = publication.id.clone();
+        if viewing.get() == Some(id.clone()) {
+            viewing.set(None);
+            view_content.set(None);
+            return;
+        }
+        viewing.set(Some(id.clone()));
+        view_content.set(None);
+        error.set(None);
+        let store = view_store.clone();
+        spawn_local(async move {
+            match store.publication_config(&id).await {
+                Ok(text) => view_content.set(Some(text)),
+                Err(err) => {
+                    viewing.set(None);
+                    error.set(Some(user_message(&err)));
+                }
+            }
+        });
     };
 
     let on_copy = move |secret: String| {
@@ -303,6 +328,10 @@ pub fn PublicationsPage() -> impl IntoView {
                                                 let copy_secret = publication.secret.clone();
                                                 let edit_publication = publication.clone();
                                                 let delete_id = id.clone();
+                                                let view_publication = publication.clone();
+                                                let view_label_id = id.clone();
+                                                let view_show_id = id.clone();
+                                                let on_view = on_view.clone();
                                                 let enabled = publication.enabled;
                                                 let link =
                                                     clipboard::subscription_url(&publication.secret);
@@ -345,6 +374,20 @@ pub fn PublicationsPage() -> impl IntoView {
                                                             <button
                                                                 type="button"
                                                                 disabled=move || busy.get()
+                                                                class="text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
+                                                                on:click=move |_| on_view(view_publication.clone())
+                                                            >
+                                                                {move || {
+                                                                    if viewing.get() == Some(view_label_id.clone()) {
+                                                                        "收起"
+                                                                    } else {
+                                                                        "查看配置"
+                                                                    }
+                                                                }}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled=move || busy.get()
                                                                 class="text-red-300 transition hover:text-red-200 disabled:opacity-50"
                                                                 on:click=move |_| on_delete(delete_id.clone())
                                                             >
@@ -352,6 +395,12 @@ pub fn PublicationsPage() -> impl IntoView {
                                                             </button>
                                                         </div>
                                                     </div>
+                                                    <Show when=move || viewing.get() == Some(view_show_id.clone())>
+                                                        {move || match view_content.get() {
+                                                            Some(text) => view! { <CodeBlock content=text/> }.into_any(),
+                                                            None => view! { <Spinner/> }.into_any(),
+                                                        }}
+                                                    </Show>
                                                 }
                                                     .into_any()
                                             };

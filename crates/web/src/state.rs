@@ -182,6 +182,11 @@ impl AuthStore {
         api::delete_source(&token, id).await
     }
 
+    pub async fn source_config(&self, id: &str) -> Result<String, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::source_config(&token, id).await
+    }
+
     pub async fn list_publications(&self) -> Result<Vec<PublicationResponse>, ApiError> {
         let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
         api::list_publications(&token).await
@@ -225,6 +230,11 @@ impl AuthStore {
     pub async fn delete_publication(&self, id: &str) -> Result<(), ApiError> {
         let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
         api::delete_publication(&token, id).await
+    }
+
+    pub async fn publication_config(&self, id: &str) -> Result<String, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::publication_config(&token, id).await
     }
 
     fn set_session(&self, access_token: String, user: UserResponse) {

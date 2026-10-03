@@ -20,9 +20,10 @@ use super::ports::{
 use super::{
     AppError, CreatePublicationCommand, CreatePublicationHandler, CreateSourceCommand,
     CreateSourceHandler, DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand,
-    DeleteSourceHandler, GetPublicationCommand, GetPublicationHandler, GetSourceCommand,
-    GetSourceHandler, ListPublicationsHandler, ListSourcesHandler, PublicationView,
-    RebuildPublicationSnapshotHandler, RefreshSourceHandler, RefreshStatus,
+    DeleteSourceHandler, GetPublicationCommand, GetPublicationContentCommand,
+    GetPublicationContentHandler, GetPublicationHandler, GetSourceCommand, GetSourceContentCommand,
+    GetSourceContentHandler, GetSourceHandler, ListPublicationsHandler, ListSourcesHandler,
+    PublicationView, RebuildPublicationSnapshotHandler, RefreshSourceHandler, RefreshStatus,
     ServePublicationCommand, ServePublicationHandler, SetPublicationSourcesCommand,
     SetPublicationSourcesHandler, SourceView, UpdatePublicationCommand, UpdatePublicationHandler,
     UpdateSourceCommand, UpdateSourceHandler,
@@ -698,6 +699,10 @@ impl Fixture {
         GetSourceHandler::new(self.sources.clone(), self.snapshots.clone())
     }
 
+    fn get_source_content(&self) -> GetSourceContentHandler {
+        GetSourceContentHandler::new(self.sources.clone(), self.snapshots.clone())
+    }
+
     fn update_source(&self) -> UpdateSourceHandler {
         UpdateSourceHandler::new(self.sources.clone(), self.clock.clone())
     }
@@ -721,6 +726,14 @@ impl Fixture {
 
     fn get_publication(&self) -> GetPublicationHandler {
         GetPublicationHandler::new(self.publications.clone())
+    }
+
+    fn get_publication_content(&self) -> GetPublicationContentHandler {
+        GetPublicationContentHandler::new(
+            self.publications.clone(),
+            self.sources.clone(),
+            self.snapshots.clone(),
+        )
     }
 
     fn update_publication(&self) -> UpdatePublicationHandler {
@@ -2049,4 +2062,109 @@ fn rebuild_publication_snapshot_uses_current_sources() {
     let b_index = cached.content().find("B 节点").unwrap();
     let a_index = cached.content().find("A 节点").unwrap();
     assert!(b_index < a_index);
+}
+
+#[test]
+fn get_source_content_returns_raw_snapshot_body() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+
+    let content = block_on(
+        fixture
+            .get_source_content()
+            .handle(GetSourceContentCommand {
+                user_id,
+                source_id: source.id,
+            }),
+    )
+    .unwrap();
+    assert_eq!(content, SNAPSHOT_A);
+}
+
+#[test]
+fn get_source_content_requires_snapshot() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let source = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+
+    let result = block_on(
+        fixture
+            .get_source_content()
+            .handle(GetSourceContentCommand {
+                user_id,
+                source_id: source.id,
+            }),
+    );
+    assert!(matches!(result, Err(AppError::NotFound)));
+}
+
+#[test]
+fn get_source_content_is_scoped_to_owner() {
+    let fixture = Fixture::new(1_000);
+    let alice = UserId::new();
+    let bob = UserId::new();
+    let source = create_source(&fixture, &alice, "A", "https://a.example.com/sub");
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+
+    let result = block_on(
+        fixture
+            .get_source_content()
+            .handle(GetSourceContentCommand {
+                user_id: bob,
+                source_id: source.id,
+            }),
+    );
+    assert!(matches!(result, Err(AppError::NotFound)));
+}
+
+#[test]
+fn get_publication_content_merges_bound_sources() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let first = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let second = create_source(&fixture, &user_id, "B", "https://b.example.com/sub");
+    let publication = create_publication(
+        &fixture,
+        &user_id,
+        "合并",
+        vec![second.id.clone(), first.id.clone()],
+    );
+    seed_snapshot(&fixture, &first.id, SNAPSHOT_A);
+    seed_snapshot(&fixture, &second.id, SNAPSHOT_B);
+
+    let content = block_on(fixture.get_publication_content().handle(
+        GetPublicationContentCommand {
+            user_id,
+            publication_id: publication.id,
+        },
+    ))
+    .unwrap();
+    let b_index = content.find("B 节点").unwrap();
+    let a_index = content.find("A 节点").unwrap();
+    assert!(
+        b_index < a_index,
+        "binding order must be preserved: {content}"
+    );
+}
+
+#[test]
+fn get_publication_content_is_scoped_to_owner() {
+    let fixture = Fixture::new(1_000);
+    let alice = UserId::new();
+    let bob = UserId::new();
+    let source = create_source(&fixture, &alice, "A", "https://a.example.com/sub");
+    let publication = create_publication(&fixture, &alice, "合并", vec![source.id.clone()]);
+    seed_snapshot(&fixture, &source.id, SNAPSHOT_A);
+
+    let result = block_on(
+        fixture
+            .get_publication_content()
+            .handle(GetPublicationContentCommand {
+                user_id: bob,
+                publication_id: publication.id,
+            }),
+    );
+    assert!(matches!(result, Err(AppError::NotFound)));
 }

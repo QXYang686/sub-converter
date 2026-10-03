@@ -46,6 +46,10 @@ pub fn router(state: AppState) -> Router {
                 .delete(handlers::delete_source),
         )
         .route(
+            "/api/subscriptions/sources/{id}/config",
+            get(handlers::get_source_config),
+        )
+        .route(
             "/api/subscriptions/publications",
             get(handlers::list_publications).post(handlers::create_publication),
         )
@@ -54,6 +58,10 @@ pub fn router(state: AppState) -> Router {
             get(handlers::get_publication)
                 .patch(handlers::update_publication)
                 .delete(handlers::delete_publication),
+        )
+        .route(
+            "/api/subscriptions/publications/{id}/config",
+            get(handlers::get_publication_config),
         )
         .route(
             "/api/subscriptions/publications/{id}/sources",

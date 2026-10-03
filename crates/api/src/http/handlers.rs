@@ -30,11 +30,12 @@ use contract::user::UserResponse;
 use subscription::application::{
     CreatePublicationCommand, CreatePublicationHandler, CreateSourceCommand, CreateSourceHandler,
     DeletePublicationCommand, DeletePublicationHandler, DeleteSourceCommand, DeleteSourceHandler,
-    GetPublicationCommand, GetPublicationHandler, GetSourceCommand, GetSourceHandler,
-    ListPublicationsHandler, ListSourcesHandler, RefreshSourceHandler, ServePublicationCommand,
-    ServePublicationHandler, SetPublicationSourcesCommand, SetPublicationSourcesHandler,
-    SubscriptionFormat, UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand,
-    UpdateSourceHandler,
+    GetPublicationCommand, GetPublicationContentCommand, GetPublicationContentHandler,
+    GetPublicationHandler, GetSourceCommand, GetSourceContentCommand, GetSourceContentHandler,
+    GetSourceHandler, ListPublicationsHandler, ListSourcesHandler, RefreshSourceHandler,
+    ServePublicationCommand, ServePublicationHandler, SetPublicationSourcesCommand,
+    SetPublicationSourcesHandler, SubscriptionFormat, UpdatePublicationCommand,
+    UpdatePublicationHandler, UpdateSourceCommand, UpdateSourceHandler,
 };
 use subscription::{PublicationId, SourceId, SourceUrl, SubscriptionUserInfo};
 use user::UserId;
@@ -433,6 +434,24 @@ pub async fn get_source(
     Ok(Json(source_response(source)))
 }
 
+pub async fn get_source_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = GetSourceContentHandler::new(state.sources.clone(), state.snapshots.clone());
+    let content = handler
+        .handle(GetSourceContentCommand {
+            user_id,
+            source_id: id,
+        })
+        .await?;
+    Ok(text_response(content))
+}
+
 pub async fn update_source(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -594,6 +613,39 @@ pub async fn update_publication(
         })
         .await?;
     Ok(Json(publication_response(publication)))
+}
+
+pub async fn get_publication_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let user = current_user(&state, &headers).await?;
+    let user_id = parse_user_id(&user)?;
+
+    let handler = GetPublicationContentHandler::new(
+        state.publications.clone(),
+        state.sources.clone(),
+        state.snapshots.clone(),
+    );
+    let content = handler
+        .handle(GetPublicationContentCommand {
+            user_id,
+            publication_id: id,
+        })
+        .await?;
+    Ok(text_response(content))
+}
+
+fn text_response(content: String) -> Response {
+    let mut response = (StatusCode::OK, content).into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/yaml; charset=utf-8"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 pub async fn delete_publication(

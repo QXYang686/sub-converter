@@ -1,4 +1,5 @@
 mod alert;
+mod code_block;
 mod guard;
 mod layout;
 mod spinner;
@@ -6,6 +7,7 @@ mod submit_button;
 mod text_field;
 
 pub use alert::Alert;
+pub use code_block::CodeBlock;
 pub use guard::{RedirectIfAuthenticated, RequireAuth};
 pub use layout::AppShell;
 pub use spinner::Spinner;

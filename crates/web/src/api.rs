@@ -134,6 +134,14 @@ pub async fn delete_source(access_token: &str, id: &str) -> Result<(), ApiError>
     .map(|_| ())
 }
 
+pub async fn source_config(access_token: &str, id: &str) -> Result<String, ApiError> {
+    get(
+        &format!("/api/subscriptions/sources/{id}/config"),
+        Some(access_token),
+    )
+    .await
+}
+
 pub async fn list_publications(access_token: &str) -> Result<Vec<PublicationResponse>, ApiError> {
     let text = get("/api/subscriptions/publications", Some(access_token)).await?;
     parse(&text)
@@ -178,6 +186,14 @@ pub async fn set_publication_sources(
     )
     .await?;
     parse(&text)
+}
+
+pub async fn publication_config(access_token: &str, id: &str) -> Result<String, ApiError> {
+    get(
+        &format!("/api/subscriptions/publications/{id}/config"),
+        Some(access_token),
+    )
+    .await
 }
 
 pub async fn delete_publication(access_token: &str, id: &str) -> Result<(), ApiError> {
