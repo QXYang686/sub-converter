@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::domain::{
     merge, parse as parse_clash, render, PublicationRepository, PublicationSecret,
-    SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot,
+    SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot, SubscriptionUserInfo,
 };
 
 use super::error::AppError;
@@ -20,6 +20,7 @@ pub struct ServePublicationCommand {
 pub struct GeneratedSubscription {
     pub name: String,
     pub content: String,
+    pub userinfo: SubscriptionUserInfo,
 }
 
 pub struct ServePublicationHandler {
@@ -98,10 +99,12 @@ impl ServePublicationHandler {
             .collect();
 
         let mut parsed = Vec::new();
+        let mut userinfo = SubscriptionUserInfo::default();
         for source in &ordered {
             let Some(snapshot) = bodies.get(source.id()) else {
                 continue;
             };
+            aggregate_userinfo(&mut userinfo, &snapshot.meta().userinfo);
             let Ok(text) = std::str::from_utf8(snapshot.body()) else {
                 continue;
             };
@@ -127,6 +130,24 @@ impl ServePublicationHandler {
         Ok(GeneratedSubscription {
             name: publication.name().value().to_string(),
             content,
+            userinfo,
         })
+    }
+}
+
+fn aggregate_userinfo(total: &mut SubscriptionUserInfo, source: &SubscriptionUserInfo) {
+    total.upload = add_optional(total.upload, source.upload);
+    total.download = add_optional(total.download, source.download);
+    total.total = add_optional(total.total, source.total);
+    total.expire = match (total.expire, source.expire) {
+        (Some(current), Some(incoming)) => Some(current.min(incoming)),
+        (current, incoming) => current.or(incoming),
+    };
+}
+
+fn add_optional(current: Option<i64>, incoming: Option<i64>) -> Option<i64> {
+    match (current, incoming) {
+        (Some(current), Some(incoming)) => Some(current.saturating_add(incoming)),
+        (current, incoming) => current.or(incoming),
     }
 }

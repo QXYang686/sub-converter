@@ -36,7 +36,7 @@ use subscription::application::{
     SubscriptionFormat, UpdatePublicationCommand, UpdatePublicationHandler, UpdateSourceCommand,
     UpdateSourceHandler,
 };
-use subscription::{SourceId, SourceUrl};
+use subscription::{SourceId, SourceUrl, SubscriptionUserInfo};
 use user::UserId;
 
 use super::dto::{
@@ -647,7 +647,29 @@ pub async fn public_subscription(
         HeaderName::from_static("profile-update-interval"),
         HeaderValue::from_static("24"),
     );
+    if let Some(userinfo) = subscription_userinfo_header(&subscription.userinfo) {
+        if let Ok(value) = HeaderValue::from_str(&userinfo) {
+            headers.insert(HeaderName::from_static("subscription-userinfo"), value);
+        }
+    }
     Ok(response)
+}
+
+fn subscription_userinfo_header(info: &SubscriptionUserInfo) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(upload) = info.upload {
+        parts.push(format!("upload={upload}"));
+    }
+    if let Some(download) = info.download {
+        parts.push(format!("download={download}"));
+    }
+    if let Some(total) = info.total {
+        parts.push(format!("total={total}"));
+    }
+    if let Some(expire) = info.expire {
+        parts.push(format!("expire={expire}"));
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
 }
 
 fn content_disposition(name: &str) -> String {
@@ -672,7 +694,8 @@ fn content_disposition(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::content_disposition;
+    use super::{content_disposition, subscription_userinfo_header};
+    use subscription::SubscriptionUserInfo;
 
     #[test]
     fn content_disposition_encodes_unicode_names() {
@@ -688,5 +711,23 @@ mod tests {
     fn content_disposition_keeps_ascii_names_readable() {
         let value = content_disposition("my-sub");
         assert!(value.contains("filename=\"my-sub.yaml\""), "{value}");
+    }
+
+    #[test]
+    fn subscription_userinfo_header_formats_present_fields() {
+        let info = SubscriptionUserInfo {
+            upload: Some(1),
+            download: Some(2),
+            total: Some(3),
+            expire: None,
+        };
+        assert_eq!(
+            subscription_userinfo_header(&info).as_deref(),
+            Some("upload=1; download=2; total=3")
+        );
+        assert_eq!(
+            subscription_userinfo_header(&SubscriptionUserInfo::default()),
+            None
+        );
     }
 }

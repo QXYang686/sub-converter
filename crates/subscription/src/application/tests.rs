@@ -9,7 +9,7 @@ use user::UserId;
 use crate::domain::{
     body_hash, ExtractedConfig, Publication, PublicationId, PublicationRepository, RepositoryError,
     SnapshotMeta, SnapshotRepository, Source, SourceId, SourceRepository, SourceSnapshot,
-    SourceUrl,
+    SourceUrl, SubscriptionUserInfo,
 };
 
 use super::ports::{
@@ -1138,6 +1138,37 @@ fn seed_snapshot(fixture: &Fixture, source_id: &str, body: &str) {
     .unwrap();
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_snapshot_with_userinfo(
+    fixture: &Fixture,
+    source_id: &str,
+    body: &str,
+    upload: i64,
+    download: i64,
+    total: i64,
+    expire: Option<i64>,
+) {
+    let source_id = SourceId::parse(source_id).unwrap();
+    let meta = SnapshotMeta {
+        userinfo: SubscriptionUserInfo {
+            upload: Some(upload),
+            download: Some(download),
+            total: Some(total),
+            expire,
+        },
+        ..SnapshotMeta::default()
+    };
+    block_on(fixture.snapshots.save(&SourceSnapshot::restore(
+        source_id,
+        body.as_bytes().to_vec(),
+        None,
+        None,
+        1_000,
+        meta,
+    )))
+    .unwrap();
+}
+
 fn fetched_document(body: &str) -> FetchedDocument {
     FetchedDocument {
         body: body.as_bytes().to_vec(),
@@ -1624,4 +1655,31 @@ fn refresh_source_backfills_extraction_on_not_modified() {
 
     let extraction = fixture.snapshots.extraction(&source_id).unwrap();
     assert_eq!(extraction.proxy_count(), 2);
+}
+
+#[test]
+fn serve_publication_aggregates_userinfo() {
+    let fixture = Fixture::new(1_000);
+    let user_id = UserId::new();
+    let first = create_source(&fixture, &user_id, "A", "https://a.example.com/sub");
+    let second = create_source(&fixture, &user_id, "B", "https://b.example.com/sub");
+    let publication = create_publication(
+        &fixture,
+        &user_id,
+        "合并",
+        vec![first.id.clone(), second.id.clone()],
+    );
+    seed_snapshot_with_userinfo(&fixture, &first.id, SNAPSHOT_A, 10, 20, 100, Some(2_000));
+    seed_snapshot_with_userinfo(&fixture, &second.id, SNAPSHOT_B, 1, 2, 50, Some(1_000));
+
+    let served = block_on(
+        fixture
+            .serve_publication()
+            .handle(serve_command(&publication.secret)),
+    )
+    .unwrap();
+    assert_eq!(served.userinfo.upload, Some(11));
+    assert_eq!(served.userinfo.download, Some(22));
+    assert_eq!(served.userinfo.total, Some(150));
+    assert_eq!(served.userinfo.expire, Some(1_000));
 }
