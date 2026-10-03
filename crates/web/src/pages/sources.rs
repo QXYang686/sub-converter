@@ -218,7 +218,15 @@ pub fn SourcesPage() -> impl IntoView {
                         .saturating_add(snap.download.unwrap_or(0));
                     let percent =
                         ((used as f64 / total as f64) * 100.0).clamp(0.0, 100.0) as u32;
-                    Some((format!("已用 {} / {}", format_bytes(used), format_bytes(total)), percent))
+                    Some((
+                        format!(
+                            "已用 {} / {} · 剩余 {}",
+                            format_bytes(used),
+                            format_bytes(total),
+                            format_bytes(total.saturating_sub(used))
+                        ),
+                        percent,
+                    ))
                 });
                 let nodes = snapshot.as_ref().map(|snap| {
                     let protocols = snap
