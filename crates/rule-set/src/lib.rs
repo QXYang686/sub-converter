@@ -8,17 +8,27 @@
 //! - 实体 `RuleSetContent`：与聚合 1:1，保存当前内容字节与抓取元数据；`pinned` 时手动
 //!   内容不被刷新覆盖
 //!
+//! # 用例（`application`）
+//!
+//! - `RuleSet` 的 CRUD 与内容读写：`CreateRuleSetHandler`、`ListRuleSetsHandler`、
+//!   `GetRuleSetHandler`、`UpdateRuleSetHandler`、`DeleteRuleSetHandler`、
+//!   `GetRuleSetContentHandler`、`ReplaceRuleSetContentHandler`、`SetRuleSetPinnedHandler`
+//! - `RefreshRuleSetHandler`：对 `Remote` 做条件请求抓取，304 只更新时间，失败保留旧内容
+//!
 //! # 范围
 //!
 //! 本上下文只负责"具名规则集"自身的建模、存储与抓取，不做任何目标格式的渲染/投影，
 //! 也不依赖 publication/source；格式渲染与集成由后续阶段在 `api` 编排。
 //!
-//! # 拥有的表
+//! # 端口与适配器
 //!
-//! `rule_sets`、`rule_set_contents`
+//! - 端口：`Clock`、`Fetcher`
+//! - D1 仓储、`HttpFetcher`、`SystemClock` 在 `infrastructure`（仅 `wasm32`）
+//! - 拥有的表：`rule_sets`、`rule_set_contents`
 //!
 //! 仅单向依赖 `user` 的 `UserId`。
 
+pub mod application;
 pub mod domain;
 
 pub use domain::{
