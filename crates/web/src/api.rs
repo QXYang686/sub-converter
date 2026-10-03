@@ -10,13 +10,17 @@ use contract::passkey::{
     PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions,
     RegisterPasskeyFinishRequest,
 };
+use contract::rule_set::{
+    CreateRuleSetRequest, RefreshRuleSetResponse, RuleSetResponse, SetRuleSetPinnedRequest,
+    UpdateRuleSetRequest,
+};
 use contract::subscription::{
     CreatePublicationRequest, CreateSourceRequest, PublicationResponse, RuleProviderResponse,
     SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
 };
 use contract::user::UserResponse;
 
-use self::client::{delete, get, patch_json, post, post_json, put_json};
+use self::client::{delete, get, patch_json, post, post_json, put_json, put_text};
 
 pub async fn register(username: &str, password: &str) -> Result<UserResponse, ApiError> {
     let body = RegisterRequest {
@@ -227,6 +231,70 @@ pub async fn delete_publication(access_token: &str, id: &str) -> Result<(), ApiE
     )
     .await
     .map(|_| ())
+}
+
+pub async fn list_rule_sets(access_token: &str) -> Result<Vec<RuleSetResponse>, ApiError> {
+    let text = get("/api/rule-sets", Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn create_rule_set(
+    access_token: &str,
+    request: &CreateRuleSetRequest,
+) -> Result<RuleSetResponse, ApiError> {
+    let text = post_json("/api/rule-sets", request, Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn update_rule_set(
+    access_token: &str,
+    id: &str,
+    request: &UpdateRuleSetRequest,
+) -> Result<RuleSetResponse, ApiError> {
+    let text = patch_json(&format!("/api/rule-sets/{id}"), request, Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn delete_rule_set(access_token: &str, id: &str) -> Result<(), ApiError> {
+    delete(&format!("/api/rule-sets/{id}"), Some(access_token))
+        .await
+        .map(|_| ())
+}
+
+pub async fn refresh_rule_set(
+    access_token: &str,
+    id: &str,
+) -> Result<RefreshRuleSetResponse, ApiError> {
+    let text = post(&format!("/api/rule-sets/{id}/refresh"), Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn rule_set_content(access_token: &str, id: &str) -> Result<String, ApiError> {
+    get(&format!("/api/rule-sets/{id}/content"), Some(access_token)).await
+}
+
+pub async fn replace_rule_set_content(
+    access_token: &str,
+    id: &str,
+    content: &str,
+) -> Result<RuleSetResponse, ApiError> {
+    let text = put_text(&format!("/api/rule-sets/{id}/content"), content, Some(access_token)).await?;
+    parse(&text)
+}
+
+pub async fn set_rule_set_pinned(
+    access_token: &str,
+    id: &str,
+    pinned: bool,
+) -> Result<RuleSetResponse, ApiError> {
+    let request = SetRuleSetPinnedRequest { pinned };
+    let text = patch_json(
+        &format!("/api/rule-sets/{id}/content"),
+        &request,
+        Some(access_token),
+    )
+    .await?;
+    parse(&text)
 }
 
 fn parse<T: DeserializeOwned>(text: &str) -> Result<T, ApiError> {

@@ -8,6 +8,9 @@ use leptos::task::spawn_local;
 use send_wrapper::SendWrapper;
 
 use contract::passkey::PasskeyResponse;
+use contract::rule_set::{
+    CreateRuleSetRequest, RefreshRuleSetResponse, RuleSetResponse, UpdateRuleSetRequest,
+};
 use contract::subscription::{
     CreatePublicationRequest, CreateSourceRequest, PublicationResponse, RuleProviderResponse,
     SetPublicationSourcesRequest, SourceResponse, UpdatePublicationRequest, UpdateSourceRequest,
@@ -245,6 +248,61 @@ impl AuthStore {
     pub async fn publication_config(&self, id: &str) -> Result<String, ApiError> {
         let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
         api::publication_config(&token, id).await
+    }
+
+    pub async fn list_rule_sets(&self) -> Result<Vec<RuleSetResponse>, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::list_rule_sets(&token).await
+    }
+
+    pub async fn create_rule_set(
+        &self,
+        request: &CreateRuleSetRequest,
+    ) -> Result<RuleSetResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::create_rule_set(&token, request).await
+    }
+
+    pub async fn update_rule_set(
+        &self,
+        id: &str,
+        request: &UpdateRuleSetRequest,
+    ) -> Result<RuleSetResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::update_rule_set(&token, id, request).await
+    }
+
+    pub async fn delete_rule_set(&self, id: &str) -> Result<(), ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::delete_rule_set(&token, id).await
+    }
+
+    pub async fn refresh_rule_set(&self, id: &str) -> Result<RefreshRuleSetResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::refresh_rule_set(&token, id).await
+    }
+
+    pub async fn rule_set_content(&self, id: &str) -> Result<String, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::rule_set_content(&token, id).await
+    }
+
+    pub async fn replace_rule_set_content(
+        &self,
+        id: &str,
+        content: &str,
+    ) -> Result<RuleSetResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::replace_rule_set_content(&token, id, content).await
+    }
+
+    pub async fn set_rule_set_pinned(
+        &self,
+        id: &str,
+        pinned: bool,
+    ) -> Result<RuleSetResponse, ApiError> {
+        let token = self.access_token().ok_or_else(ApiError::unauthenticated)?;
+        api::set_rule_set_pinned(&token, id, pinned).await
     }
 
     fn set_session(&self, access_token: String, user: UserResponse) {

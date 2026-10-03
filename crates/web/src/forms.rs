@@ -1,6 +1,7 @@
 use contract::{
-    PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, SOURCE_URL_MAX_LEN, SUBSCRIPTION_NAME_MAX_LEN,
-    SUBSCRIPTION_NAME_MIN_LEN, USERNAME_MAX_LEN, USERNAME_MIN_LEN,
+    PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, RULE_SET_NAME_MAX_LEN, RULE_SET_NAME_MIN_LEN,
+    SOURCE_URL_MAX_LEN, SUBSCRIPTION_NAME_MAX_LEN, SUBSCRIPTION_NAME_MIN_LEN, USERNAME_MAX_LEN,
+    USERNAME_MIN_LEN,
 };
 
 pub fn validate_username(raw: &str) -> Result<String, String> {
@@ -65,6 +66,17 @@ pub fn validate_publication_name(raw: &str) -> Result<String, String> {
     if !(SUBSCRIPTION_NAME_MIN_LEN..=SUBSCRIPTION_NAME_MAX_LEN).contains(&length) {
         return Err(format!(
             "名称长度需在 {SUBSCRIPTION_NAME_MIN_LEN}-{SUBSCRIPTION_NAME_MAX_LEN} 个字符之间"
+        ));
+    }
+    Ok(name.to_string())
+}
+
+pub fn validate_rule_set_name(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    let length = name.chars().count();
+    if !(RULE_SET_NAME_MIN_LEN..=RULE_SET_NAME_MAX_LEN).contains(&length) {
+        return Err(format!(
+            "名称长度需在 {RULE_SET_NAME_MIN_LEN}-{RULE_SET_NAME_MAX_LEN} 个字符之间"
         ));
     }
     Ok(name.to_string())

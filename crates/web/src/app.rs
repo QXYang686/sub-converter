@@ -4,7 +4,7 @@ use leptos_router::path;
 
 use crate::components::AppShell;
 use crate::pages::{
-    HomePage, LoginPage, PublicationsPage, RegisterPage, SettingsPage, SourcesPage,
+    HomePage, LoginPage, PublicationsPage, RegisterPage, RuleSetsPage, SettingsPage, SourcesPage,
 };
 use crate::state::AuthStore;
 
@@ -22,6 +22,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/register") view=RegisterPage/>
                     <Route path=path!("/settings") view=SettingsPage/>
                     <Route path=path!("/sources") view=SourcesPage/>
+                    <Route path=path!("/rule-sets") view=RuleSetsPage/>
                     <Route path=path!("/publications") view=PublicationsPage/>
                 </Routes>
             </AppShell>

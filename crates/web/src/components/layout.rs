@@ -30,6 +30,12 @@ pub fn AppShell(children: Children) -> impl IntoView {
                                 "发布订阅"
                             </A>
                             <A
+                                href="/rule-sets"
+                                attr:class="transition hover:text-slate-200"
+                            >
+                                "规则集"
+                            </A>
+                            <A
                                 href="/settings"
                                 attr:class="transition hover:text-slate-200"
                             >

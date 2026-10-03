@@ -164,6 +164,26 @@ pub(crate) async fn put_json<B: Serialize>(
     read_response(response).await
 }
 
+pub(crate) async fn put_text(
+    path: &str,
+    body: &str,
+    bearer: Option<&str>,
+) -> Result<String, ApiError> {
+    let mut request = Request::put(path).header(XHR_HEADER, XHR_HEADER_VALUE);
+    if let Some(token) = bearer {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let request = request
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .body(body.to_string())
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|err| ApiError::network(err.to_string()))?;
+    read_response(response).await
+}
+
 async fn read_response(response: gloo_net::http::Response) -> Result<String, ApiError> {
     let status = response.status();
     let text = response
